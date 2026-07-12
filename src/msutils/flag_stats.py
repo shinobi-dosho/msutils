@@ -7,7 +7,7 @@ import logging
 
 import casacore.measures
 
-from MSUtils import msutils
+from . import msutils
 
 import dask
 import dask.array as da

@@ -1,0 +1,18 @@
+# Build artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+
+# Test / tooling caches
+.pytest_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/

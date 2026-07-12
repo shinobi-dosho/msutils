@@ -7,7 +7,7 @@ import numpy.ma as ma
 import pylab
 from scipy.interpolate import interp1d
 from scipy import interpolate
-from MSUtils import msutils
+from . import msutils
 from pyrap.tables import table
 import matplotlib.cm as cm
 
