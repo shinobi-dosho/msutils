@@ -167,42 +167,48 @@ def antenna_flags_field(msname, fields=None, antennas=None):
 
     nant = len(ant_ids)
     nfield = len(field_ids)
-
     fields_str = ", ".join(map(str, field_ids))
-    ds_mss = xds_from_ms(msname, group_cols=["FIELD_ID", "DATA_DESC_ID"],
-            chunks={'row': 100000}, taql_where="FIELD_ID IN [%s]" % fields_str)
+    missing_antennas = []
+
     flag_sum_computes = []
-    for ds in ds_mss:
-        flag_sums = da.blockwise(_get_ant_flags, ("row",),
-                                    ant_ids, ("ant",),
-                                    ds.ANTENNA1.data, ("row",),
-                                    ds.ANTENNA2.data, ("row",),
-                                    ds.FLAG.data, ("row","chan", "corr"),
-                                    adjust_chunks={"row": nant },
-                                    dtype=numpy.ndarray)
+    for ant_id in ant_ids:
+        ds = xds_from_ms(msname,
+                chunks={'row': 100000},
+                taql_where=f"ANTENNA1 IN [{ant_id}] or ANTENNA2 IN [{ant_id}]")
+        if ds:
+            ds = ds[0]
+            flag_sums = da.blockwise(_get_ant_flags, ("row",),
+                                     [ant_id], ("ant",),
+                                     ds.ANTENNA1.data, ("row",),
+                                     ds.ANTENNA2.data, ("row",),
+                                     ds.FLAG.data, ("row","chan", "corr"),
+                                     dtype=numpy.ndarray)
 
-        flags_redux = da.reduction(flag_sums,
-                                 chunk=_chunk,
-                                 combine=_combine,
-                                 aggregate=_aggregate,
-                                 concatenate=False,
-                                 dtype=numpy.float64)
-        flag_sum_computes.append(flags_redux)
+            flags_redux = da.reduction(flag_sums,
+                                       chunk=_chunk,
+                                       combine=_combine,
+                                       aggregate=_aggregate,
+                                       concatenate=False,
+                                       dtype=numpy.float64)
+            flag_sum_computes.append(flags_redux)
+        else:
+           missing_antennas.append(ant_id)
+           LOGGER.warn(f"No data found for Antenna-Id: {ant_id}")
 
-    #flag_sum_computes[0].visualize("graph.pdf")
-    sum_per_field_spw = dask.compute(flag_sum_computes)[0]
-    sum_all = sum(sum_per_field_spw)
-    fractions = sum_all[:,0]/sum_all[:,1]
+
     stats = {}
+    sum_per_antenna = dask.compute(flag_sum_computes)[0]
+    ant_ids = [ant_id for ant_id in ant_ids if ant_id not in missing_antennas]
     for i,aid in enumerate(ant_ids):
         ant_stats = {}
         ant_pos = list(ant_positions[i])
+        fraction = sum_per_antenna[i][0][0]/sum_per_antenna[i][0][1]
         ant_stats["name"] = ant_names[aid]
         ant_stats["position"] = ant_pos
         ant_stats["array_centre_dist"] = _distance(cofa, ant_pos)
-        ant_stats["frac"] = fractions[i]
-        ant_stats["sum"] = sum_all[i][0]
-        ant_stats["counts"] = sum_all[i][1]
+        ant_stats["frac"] = fraction
+        ant_stats["sum"] = sum_per_antenna[i][0][0]
+        ant_stats["counts"] = sum_per_antenna[i][0][1]
         stats[aid] = ant_stats
 
     return stats
@@ -276,28 +282,34 @@ def source_flags_field(msname, fields=None):
         field_ids = list(range(len(field_names)))
 
     fields_str = ", ".join(map(str, field_ids))
-    ds_mss = xds_from_ms(msname, group_cols=["FIELD_ID"],
-            chunks={'row': 100000}, taql_where="FIELD_ID IN [%s]" % fields_str)
     flag_sum_computes = []
     nfields = len(field_ids)
+    missing_fields = []
 
-    for ds in ds_mss:
-        flag_sums = da.blockwise(_get_flags, ("row",),
-                                    field_ids, ("field",),
-                                    ds.FLAG.data, ("row","chan", "corr"),
-                                    adjust_chunks={"row": nfields},
-                                    dtype=numpy.ndarray)
+    for field_id in field_ids:
+        ds = xds_from_ms(msname,
+                chunks={'row': 100000}, taql_where="FIELD_ID IN [%s]" % str(field_id))
+        if ds:
+            ds = ds[0]
+            flag_sums = da.blockwise(_get_flags, ("row",),
+                                     [field_id], ("field",),
+                                     ds.FLAG.data, ("row","chan", "corr"),
+                                     dtype=numpy.ndarray)
 
-        flags_redux = da.reduction(flag_sums,
-                                 chunk=_chunk,
-                                 combine=_combine,
-                                 aggregate=_aggregate,
-                                 concatenate=False,
-                                 dtype=numpy.float64)
-        flag_sum_computes.append(flags_redux)
+            flags_redux = da.reduction(flag_sums,
+                                       chunk=_chunk,
+                                       combine=_combine,
+                                       aggregate=_aggregate,
+                                       concatenate=False,
+                                       dtype=numpy.float64)
+            flag_sum_computes.append(flags_redux)
+        else:
+           missing_fields.append(field_id)
+           LOGGER.warn(f"No data for field-Id: {field_id}")
 
-    sum_per_field_spw = dask.compute(flag_sum_computes)[0]
     stats = {}
+    sum_per_field_spw = dask.compute(flag_sum_computes)[0]
+    field_ids = [field_id for field_id in field_ids if field_id not in missing_fields]
     for i,fid in enumerate(field_ids):
         field_stats = {}
         sum_all = sum(sum_per_field_spw[i])
@@ -438,14 +450,3 @@ def save_statistics(msname, antennas=None, fields=None, outfile=None):
     flag_data = {'antenna_stats': antenna_stats, 'scan_stats': scan_stats,
                  'target_stats': target_stats, 'corr_stats': corr_stats}
     return flag_data
-#with ExitStack() as stack:
-#    from dask.diagnostics import Profiler, visualize
-#    prof = Profiler()
-#
-#    stack.enter_context(prof)
-#    result = dask.compute(writes)[0]
-#    print(sum(result))
-#
-#    import pdb; pdb.set_trace()
-#
-#    visualize(prof)
