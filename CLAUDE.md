@@ -26,7 +26,7 @@ ruff check .             # lint; gate mirrors the old flake8 hard-fail set (see 
 
 The package uses a **`src/` layout**: the real package is `src/msutils/`, plus the `src/MSUtils/` alias shim; both are shipped (`[tool.hatch.build.targets.wheel] packages`). The distribution/PyPI name is `msutils`. Packaging is configured entirely in `pyproject.toml` (hatchling) — there is no `setup.py`/`setup.cfg`/`requirements.txt`/`MANIFEST.in`. Internal code imports the core as `from . import _ms` (never the deprecated `msutils.msutils` shim), and opens tables via `_tables.open_table` (a context manager that guarantees `.close()`).
 
-Tests are thin: `tests/` holds import/smoke checks only, because almost every function reads/writes casacore tables. When adding real functionality, verify against a real `.ms`. The ruff gate only enforces syntax + undefined-name rules (`E9`, `F63`, `F7`, `F82`).
+Tests: `tests/test_import.py` is import/API smoke checks (no deps). `tests/test_ms_ops.py` exercises the core column ops end-to-end against a **synthetic MS** built by the `ms` fixture (`conftest.py`), which uses `simms` (7-antenna kat-7, 3 times × 4 chans). `simms` is a heavy git-installed dependency in the `test` dependency group; when it's absent the MS-backed tests **skip** rather than fail (so a bare `pytest` still passes). CI installs `simms` as a non-fatal step. The ruff gate only enforces syntax + undefined-name rules (`E9`, `F63`, `F7`, `F82`).
 
 Releases publish to PyPI automatically on GitHub release creation (`.github/workflows/publish.yml`). Bump `version` in `pyproject.toml` for a release.
 

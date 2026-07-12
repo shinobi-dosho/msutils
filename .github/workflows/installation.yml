@@ -31,6 +31,12 @@ jobs:
     - name: Lint with ruff
       run: |
         ruff check .
+    - name: Install simms (for MS-backed behavioural tests)
+      # Heavy git dependency; if it fails to install, the MS-backed tests skip
+      # rather than failing the build. Only supports newer Python.
+      continue-on-error: true
+      run: |
+        pip install "simms @ git+https://github.com/wits-cfa/simms.git"
     - name: Run tests
       run: |
-        pytest
+        pytest -rs

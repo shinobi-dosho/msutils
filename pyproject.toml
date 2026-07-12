@@ -47,6 +47,13 @@ dev = [
     "pytest>=8.0",
     "ruff>=0.5",
 ]
+# `simms` generates the synthetic MS used by the behavioural tests. It is a
+# heavy, git-installed dependency (kept out of the published package metadata);
+# MS-backed tests skip when it is not importable.
+test = [
+    "pytest>=8.0",
+    "simms @ git+https://github.com/wits-cfa/simms.git",
+]
 
 [project.urls]
 Homepage = "https://github.com/SpheMakh/msutils"
