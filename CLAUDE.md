@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`msutils` is a Python library of CASA Measurement Set (MS) manipulation tools used in radio-astronomy pipelines. The core column operations are exposed **directly on the package**: `import msutils; msutils.summary(msname)`, `msutils.addcol(...)`, etc.
+`msutils` is a Python library of CASA Measurement Set (MS) manipulation tools used in radio-astronomy pipelines. The core column operations are exposed **directly on the package**: `import msutils; msutils.summary(msname)`, `msutils.addcol(...)`, etc. There is also a click **CLI** (`msutils` console script → `msutils.cli:cli`) with subcommands `summary`/`addcol`/`copycol`/`sumcols`/`addnoise`/`flagstats`.
 
 **Two deprecated aliases** (both emit `FutureWarning`, kept for one release):
 - The old **capitalised `MSUtils` package** — `src/MSUtils/__init__.py` warns, then swaps `sys.modules["MSUtils"]` for the real `msutils` package.

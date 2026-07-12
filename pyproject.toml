@@ -25,7 +25,11 @@ classifiers = [
 dependencies = [
     "numpy",
     "python-casacore",
+    "click>=8.0",
 ]
+
+[project.scripts]
+msutils = "msutils.cli:cli"
 
 [project.optional-dependencies]
 # msutils.flag_stats: out-of-core flag statistics + Bokeh HTML plots
