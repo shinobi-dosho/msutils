@@ -6,8 +6,8 @@ The core column operations are exposed directly on the package, e.g.::
     msutils.summary(msname)
     msutils.addcol(msname, "MODEL_DATA")
 
-Feature-specific modules (``flag_stats``, ``ClassESW``, ``imp_plotter``) require
-optional extras -- ``pip install msutils[flagstats]`` / ``msutils[plots]``.
+Feature-specific modules (``flag_stats``, ``ClassESW``) require optional
+extras -- ``pip install msutils[flagstats]`` / ``msutils[plots]``.
 """
 from ._ms import (
     STOKES_TYPES,

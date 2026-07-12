@@ -84,15 +84,15 @@ def addnoise(ms, column, sefd, noise, add_to):
 
 @cli.command()
 @click.argument("ms")
-@click.option("--html", "htmlfile", type=click.Path(), default=None,
-              help="Output HTML plot file.")
+@click.option("--plot", "plotfile", type=click.Path(), default=None,
+              help="Output PNG plot file.")
 @click.option("--json", "outfile", type=click.Path(), default=None,
               help="Output JSON statistics file.")
 @click.option("--field", "fields", multiple=True,
               help="Field id/name to include (repeatable).")
 @click.option("--antenna", "antennas", multiple=True,
               help="Antenna id/name to include (repeatable).")
-def flagstats(ms, htmlfile, outfile, fields, antennas):
+def flagstats(ms, plotfile, outfile, fields, antennas):
     """Compute + plot flag statistics (requires the 'flagstats' extra)."""
     try:
         from . import flag_stats
@@ -104,7 +104,7 @@ def flagstats(ms, htmlfile, outfile, fields, antennas):
         ms,
         antennas=list(antennas) or None,
         fields=list(fields) or None,
-        htmlfile=htmlfile,
+        plotfile=plotfile,
         outfile=outfile,
     )
 

@@ -1,4 +1,3 @@
-import math
 import json
 import numpy
 
@@ -11,8 +10,9 @@ import dask
 import dask.array as da
 from daskms import xds_from_ms, xds_from_table
 
-from bokeh.layouts import row, column
-from bokeh.plotting import figure, output_file, save
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 
 LOGGER = create_logger(__name__)
 
@@ -377,39 +377,43 @@ def _plot_flag_stats(antenna_stats, scan_stats, target_stats, corr_stats, outfil
                             'rotate_xlabel':False}
           }
 
-    plot_list = []
     if not outfile:
-        outfile = 'default-flagging-summary-plots.html'
-    for flag_stats in [antenna_stats, scan_stats, target_stats, corr_stats]:
+        outfile = 'default-flagging-summary-plots.png'
+
+    # 2x2 grid, matching the previous arrangement:
+    # top row (fields, corrs), bottom row (scans, antennas).
+    fig, axes = plt.subplots(2, 2, figsize=(12, 8))
+    layout = [
+        (target_stats, axes[0][0]),
+        (corr_stats, axes[0][1]),
+        (scan_stats, axes[1][0]),
+        (antenna_stats, axes[1][1]),
+    ]
+    for flag_stats, ax in layout:
         key = list(flag_stats.keys())[0]
         flag_data = list(flag_stats.values())[0]
         stats_keys = [fd['name'] for fd in flag_data.values()]
         flag_percentages = [fd['frac']*100 for fd in flag_data.values()]
-        rotate_xlabel = plots[key]['rotate_xlabel']
-        x_label=plots[key]['x_label']
-        y_label=plots[key]['y_label']
-        title=plots[key]['title']
-        plotter = figure(x_range=stats_keys, x_axis_label=x_label, y_axis_label=y_label,
-                         plot_width=600, plot_height=400, title=title, y_range=(0, 100),
-                         tools="hover,box_zoom,wheel_zoom,pan,save,reset")
-        plotter.vbar(x=stats_keys, top=flag_percentages, width=0.9)
-        plotter.xgrid.grid_line_color = None
-        plotter.y_range.start = 0
-        plotter.title.align = 'center'
-        plotter.hover.tooltips = [(key.title(), "@x"), ("%", "@top")]
-        if rotate_xlabel:
-            plotter.xaxis.major_label_orientation = math.pi/2
-        plot_list.append(plotter)
-    output_file(outfile)
-    LOGGER.info(f"Output plots: {outfile}.")
-    save(column(row(plot_list[2], plot_list[3]),
-                row(plot_list[1], plot_list[0])))
+        cfg = plots[key]
+        positions = range(len(stats_keys))
+        ax.bar(positions, flag_percentages, width=0.9)
+        ax.set_xticks(list(positions))
+        ax.set_xticklabels(stats_keys,
+                           rotation=90 if cfg['rotate_xlabel'] else 0)
+        ax.set_xlabel(cfg['x_label'])
+        ax.set_ylabel(cfg['y_label'])
+        ax.set_title(cfg['title'])
+        ax.set_ylim(0, 100)
+    fig.tight_layout()
+    LOGGER.info("Output plots: %s.", outfile)
+    fig.savefig(outfile)
+    plt.close(fig)
 
 
-def plot_statistics(msname, antennas=None, fields=None, htmlfile=None, outfile=None):
-    """Plot stats data"""
+def plot_statistics(msname, antennas=None, fields=None, plotfile=None, outfile=None):
+    """Compute flag statistics, saving a PNG plot (plotfile) and JSON (outfile)."""
     flag_data = save_statistics(msname, antennas=antennas, fields=fields, outfile=outfile)
-    _plot_flag_stats(**flag_data, outfile=htmlfile)
+    _plot_flag_stats(**flag_data, outfile=plotfile)
 
 
 def save_statistics(msname, antennas=None, fields=None, outfile=None):
