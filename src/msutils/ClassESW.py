@@ -4,9 +4,9 @@ import numpy
 import numpy.ma as ma
 import pylab
 from scipy import interpolate
-from . import msutils
+from . import _ms as msutils
 from ._log import create_logger
-from pyrap.tables import table
+from casacore.tables import table
 import matplotlib.cm as cm
 
 LOGGER = create_logger(__name__)

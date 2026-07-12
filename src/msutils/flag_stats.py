@@ -4,7 +4,7 @@ import numpy
 
 import casacore.measures
 
-from . import msutils
+from . import _ms as msutils
 from ._log import create_logger
 
 import dask

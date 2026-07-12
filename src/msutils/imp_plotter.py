@@ -2,7 +2,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
-from pyrap.tables import table
+from casacore.tables import table
 from ._log import create_logger
 
 LOGGER = create_logger(__name__)

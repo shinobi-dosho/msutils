@@ -4,9 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`msutils` is a Python library of CASA Measurement Set (MS) manipulation tools used in radio-astronomy pipelines. It is a pure library — there is no CLI entry point. Functions are imported and called (`from msutils import msutils`).
+`msutils` is a Python library of CASA Measurement Set (MS) manipulation tools used in radio-astronomy pipelines. The core column operations are exposed **directly on the package**: `import msutils; msutils.summary(msname)`, `msutils.addcol(...)`, etc.
 
-The import package was renamed from `MSUtils` → `msutils`. `MSUtils` still works as a **deprecated alias** (`src/MSUtils/__init__.py` emits a `FutureWarning` — shown by default, unlike `DeprecationWarning` — then swaps `sys.modules["MSUtils"]` for the real `msutils` package so submodule access transparently resolves). Use `msutils` in all new code.
+**Two deprecated aliases** (both emit `FutureWarning`, kept for one release):
+- The old **capitalised `MSUtils` package** — `src/MSUtils/__init__.py` warns, then swaps `sys.modules["MSUtils"]` for the real `msutils` package.
+- The old **`msutils.msutils` submodule** — the functions used to live there; `src/msutils/msutils.py` now re-exports them from `_ms` and warns. `src/msutils/__init__.py` also has a `__getattr__` so lazy `msutils.msutils` attribute access triggers the (deprecated) import.
+
+Use the flat `msutils.<func>` form in all new code.
 
 ## Commands
 
@@ -15,12 +19,12 @@ pip install .            # install (editable: pip install -e .); build backend i
 pip install pytest ruff  # dev tooling (or: pip install with the [dependency-groups] dev set)
 
 pytest                   # run the test suite (config in pyproject.toml [tool.pytest.ini_options])
-pytest tests/test_import.py::test_import_msutils   # run a single test
+pytest tests/test_import.py::test_flat_api          # run a single test
 
 ruff check .             # lint; gate mirrors the old flake8 hard-fail set (see pyproject [tool.ruff.lint])
 ```
 
-The package uses a **`src/` layout**: the real package is `src/msutils/`, plus the `src/MSUtils/` alias shim; both are shipped (`[tool.hatch.build.targets.wheel] packages`). The distribution/PyPI name is `msutils`. Packaging is configured entirely in `pyproject.toml` (hatchling) — there is no `setup.py`/`setup.cfg`/`requirements.txt`/`MANIFEST.in`. Internal imports use relative form (`from . import msutils`) so the real package never routes through the deprecated alias.
+The package uses a **`src/` layout**: the real package is `src/msutils/`, plus the `src/MSUtils/` alias shim; both are shipped (`[tool.hatch.build.targets.wheel] packages`). The distribution/PyPI name is `msutils`. Packaging is configured entirely in `pyproject.toml` (hatchling) — there is no `setup.py`/`setup.cfg`/`requirements.txt`/`MANIFEST.in`. Internal code imports the core as `from . import _ms` (never the deprecated `msutils.msutils` shim), and opens tables via `_tables.open_table` (a context manager that guarantees `.close()`).
 
 Tests are thin: `tests/` holds import/smoke checks only, because almost every function reads/writes casacore tables. When adding real functionality, verify against a real `.ms`. The ruff gate only enforces syntax + undefined-name rules (`E9`, `F63`, `F7`, `F82`).
 
@@ -28,15 +32,15 @@ Releases publish to PyPI automatically on GitHub release creation (`.github/work
 
 ## Critical dependency detail
 
-The core module `msutils.py` and `imp_plotter.py`/`ClassESW.py` import casacore via the **legacy `pyrap` namespace** (`from pyrap.tables import table`), while `flag_stats.py` uses the **modern `casacore` / `daskms`** namespace. Both refer to the same underlying `python-casacore` install (`pyrap` is an alias). `python-casacore` is a regular `pyproject.toml` dependency (pip wheels bundle the casacore libs), so `pip install .` is self-contained.
+All modules now use the **modern `casacore` namespace** (`from casacore.tables import table`; `flag_stats` additionally uses `daskms`). The legacy `pyrap` alias is gone. `python-casacore` is a regular `pyproject.toml` dependency (pip wheels bundle the casacore libs), so `pip install .` is self-contained.
 
-**Dependencies are split into extras** (`[project.optional-dependencies]`): the base install is only `numpy` + `python-casacore` (enough for `msutils.msutils`'s column ops). Heavier stacks are opt-in — `msutils[flagstats]` pulls `dask-ms`+`bokeh` (for `flag_stats`), `msutils[plots]` pulls `matplotlib`+`scipy` (for `ClassESW`/`imp_plotter`), and `msutils[all]` gets everything. So importing `flag_stats`/`ClassESW`/`imp_plotter` without the matching extra fails by design.
+**Dependencies are split into extras** (`[project.optional-dependencies]`): the base install is only `numpy` + `python-casacore` (enough for the core `_ms` column ops). Heavier stacks are opt-in — `msutils[flagstats]` pulls `dask-ms`+`bokeh` (for `flag_stats`), `msutils[plots]` pulls `matplotlib`+`scipy` (for `ClassESW`/`imp_plotter`), and `msutils[all]` gets everything. So importing `flag_stats`/`ClassESW`/`imp_plotter` without the matching extra fails by design.
 
 ## Architecture
 
-Four largely independent modules under `src/msutils/`, unified only by the shared casacore-table access pattern and a shared logger (`_log.create_logger`, one handler per named logger):
+Modules under `src/msutils/`, unified by a shared table helper (`_tables.open_table`) and logger (`_log.create_logger`, one handler per named logger):
 
-- **`msutils.py`** — the core (base-install only, needs just numpy+casacore). Column-level MS operations: `summary` (dumps MS metadata to a JSON-serializable dict), `addcol`, `sumcols`, `copycol`, `addnoise`, `compute_vis_noise`, `verify_antpos`. Defines `STOKES_TYPES` (correlation-code → label map) reused by other modules. (The old `prep()` — which shelled out to `addbitflagcol`/`flag-ms.py` and used `distutils` — was removed.)
+- **`_ms.py`** — the core (base-install only, needs just numpy+casacore), re-exported at the package root. Type-hinted column-level MS operations: `summary` (dumps MS metadata to a JSON-serializable dict), `addcol`, `sumcols`, `copycol`, `addnoise`, `compute_vis_noise`, `verify_antpos`. Defines `STOKES_TYPES` (correlation-code → label map) reused by other modules and lists the public API in `__all__`. (The old `prep()` — which shelled out to `addbitflagcol`/`flag-ms.py` and used `distutils` — was removed.)
 
 - **`flag_stats.py`** — flag statistics computed **out-of-core with dask-ms + dask.array**, results plotted to interactive Bokeh HTML. The public entry points are `save_statistics` (→ JSON) and `plot_statistics` (→ HTML). Under the hood, per-axis functions (`antenna_flags_field`, `scan_flags_field`, `source_flags_field`, `correlation_flags_field`) use `xds_from_ms` grouped by a column, then `da.blockwise` + `da.reduction` with the module-level `_get_flags`/`_get_ant_flags`/`_chunk`/`_combine`/`_aggregate` helpers to accumulate `[flagged_sum, total_count]` pairs.
 
