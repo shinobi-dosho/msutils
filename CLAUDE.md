@@ -32,9 +32,9 @@ Releases publish to PyPI automatically on GitHub release creation (`.github/work
 
 ## Critical dependency detail
 
-All modules now use the **modern `casacore` namespace** (`from casacore.tables import table`; `flag_stats` additionally uses `daskms`). The legacy `pyrap` alias is gone. `python-casacore` is a regular `pyproject.toml` dependency (pip wheels bundle the casacore libs), so `pip install .` is self-contained.
+All modules now use the **modern `casacore` namespace** (`from casacore.tables import table`; `flagstats` additionally uses `daskms`). The legacy `pyrap` alias is gone. `python-casacore` is a regular `pyproject.toml` dependency (pip wheels bundle the casacore libs), so `pip install .` is self-contained.
 
-**Dependencies are split into extras** (`[project.optional-dependencies]`): the base install is only `numpy` + `python-casacore` (enough for the core `_ms` column ops). Heavier stacks are opt-in — `msutils[flagstats]` pulls `dask-ms`+`matplotlib` (for `flag_stats`), `msutils[plots]` pulls `matplotlib`+`scipy` (for `ClassESW`), and `msutils[all]` gets everything. So importing `flag_stats`/`ClassESW` without the matching extra fails by design.
+**Dependencies are split into extras** (`[project.optional-dependencies]`): the base install is only `numpy` + `python-casacore` (enough for the core `_ms` column ops). Heavier stacks are opt-in — `msutils[flagstats]` pulls `dask-ms`+`matplotlib` (for `flagstats`), `msutils[plots]` pulls `matplotlib`+`scipy` (for `weights`), and `msutils[all]` gets everything. So importing `flagstats`/`weights` without the matching extra fails by design. (The pre-2.x module names `flag_stats`/`ClassESW` remain as deprecated `FutureWarning` shims.)
 
 ## Architecture
 
@@ -42,9 +42,9 @@ Modules under `src/msutils/`, unified by a shared table helper (`_tables.open_ta
 
 - **`_ms.py`** — the core (base-install only, needs just numpy+casacore), re-exported at the package root. Type-hinted column-level MS operations: `summary` (dumps MS metadata to a JSON-serializable dict), `addcol`, `sumcols`, `copycol`, `addnoise`, `compute_vis_noise`, `verify_antpos`. Defines `STOKES_TYPES` (correlation-code → label map) reused by other modules and lists the public API in `__all__`. (The old `prep()` — which shelled out to `addbitflagcol`/`flag-ms.py` and used `distutils` — was removed.)
 
-- **`flag_stats.py`** — flag statistics computed **out-of-core with dask-ms + dask.array**, results plotted to a **matplotlib PNG** (2×2 bar-chart summary; `Agg` backend). The public entry points are `save_statistics` (→ JSON) and `plot_statistics` (→ PNG via `plotfile=`, + JSON via `outfile=`). Under the hood, per-axis functions (`antenna_flags_field`, `scan_flags_field`, `source_flags_field`, `correlation_flags_field`) use `xds_from_ms` grouped by a column, then `da.blockwise` + `da.reduction` with the module-level `_get_flags`/`_get_ant_flags`/`_chunk`/`_combine`/`_aggregate` helpers to accumulate `[flagged_sum, total_count]` pairs.
+- **`flagstats.py`** (was `flag_stats.py`) — flag statistics computed **out-of-core with dask-ms + dask.array**, results plotted to a **matplotlib PNG** (2×2 bar-chart summary; `Agg` backend). The public entry points are `save_statistics` (→ JSON) and `plot_statistics` (→ PNG via `plotfile=`, + JSON via `outfile=`). Under the hood, per-axis functions (`antenna_flags_field`, `scan_flags_field`, `source_flags_field`, `correlation_flags_field`) use `xds_from_ms` grouped by a column, then `da.blockwise` + `da.reduction` with the module-level `_get_flags`/`_get_ant_flags`/`_chunk`/`_combine`/`_aggregate` helpers to accumulate `[flagged_sum, total_count]` pairs.
 
-- **`ClassESW.py`** — `MSNoise` class: estimates per-channel visibility noise/weights from an SEFD-vs-frequency profile (fits a polynomial or spline), then writes `WEIGHT`/`WEIGHT_SPECTRUM` back to the MS. `MEERKAT_SEFD` is a built-in reference profile. Depends on `msutils.summary` and `msutils.addcol`.
+- **`weights.py`** (was `ClassESW.py`) — `MSNoise` class: estimates per-channel visibility noise/weights from an SEFD-vs-frequency profile (fits a polynomial or spline), then writes `WEIGHT`/`WEIGHT_SPECTRUM` back to the MS. `MEERKAT_SEFD` is a built-in reference profile. Depends on `msutils.summary` and `msutils.addcol`.
 
 (`imp_plotter.py` — matplotlib gain/cal-table plotters — was removed in 2.x; gain-table plotting is superseded by `ragavi-gains`, and gain tables aren't MSs.)
 

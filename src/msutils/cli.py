@@ -95,12 +95,12 @@ def addnoise(ms, column, sefd, noise, add_to):
 def flagstats(ms, plotfile, outfile, fields, antennas):
     """Compute + plot flag statistics (requires the 'flagstats' extra)."""
     try:
-        from . import flag_stats
+        from . import flagstats as flagstats_mod
     except ImportError:
         raise click.ClickException(
             "flagstats needs extra dependencies. Install with: "
             "pip install 'msutils[flagstats]'")
-    flag_stats.plot_statistics(
+    flagstats_mod.plot_statistics(
         ms,
         antennas=list(antennas) or None,
         fields=list(fields) or None,

@@ -6,7 +6,7 @@ The core column operations are exposed directly on the package, e.g.::
     msutils.summary(msname)
     msutils.addcol(msname, "MODEL_DATA")
 
-Feature-specific modules (``flag_stats``, ``ClassESW``) require optional
+Feature-specific modules (``flagstats``, ``weights``) require optional
 extras -- ``pip install msutils[flagstats]`` / ``msutils[plots]``.
 """
 from ._ms import (

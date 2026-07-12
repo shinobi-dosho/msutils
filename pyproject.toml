@@ -32,12 +32,12 @@ dependencies = [
 msutils = "msutils.cli:cli"
 
 [project.optional-dependencies]
-# msutils.flag_stats: out-of-core flag statistics + matplotlib summary plots
+# msutils.flagstats: out-of-core flag statistics + matplotlib summary plots
 flagstats = [
     "dask-ms",
     "matplotlib",
 ]
-# msutils.ClassESW: matplotlib/scipy noise-weight estimation + diagnostic plot
+# msutils.weights: matplotlib/scipy noise-weight estimation + diagnostic plot
 plots = [
     "matplotlib",
     "scipy",
