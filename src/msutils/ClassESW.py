@@ -1,15 +1,15 @@
 import matplotlib
 matplotlib.use('Agg')
-import sys
-import os
 import numpy
 import numpy.ma as ma
 import pylab
-from scipy.interpolate import interp1d
 from scipy import interpolate
 from . import msutils
+from ._log import create_logger
 from pyrap.tables import table
 import matplotlib.cm as cm
+
+LOGGER = create_logger(__name__)
 
 MEERKAT_SEFD = numpy.array([
  [ 856e6, 580.], 
@@ -55,13 +55,6 @@ class MSNoise(object):
         }
         self.nspw = len(self.spw['freqs'])
 
-    def estimate_noise(self, corr=None, autocorr=False):
-        """
-            Estimate visibility noise
-        """
-        return 
-
-
     def estimate_weights(self, mode='specs',
                 stats_data=None, normalise=True, 
                 smooth='polyn', fit_order=9,
@@ -85,22 +78,16 @@ class MSNoise(object):
 
         """
 
-        #TODO(sphe): add function to estimate noise for the other mode.
-        # For now, fix the mode
+        # TODO(sphe): support a 'calc' mode that estimates noise internally.
+        # For now, only the 'specs' mode is implemented.
         mode = 'specs'
-        if mode=='specs':
-            if isinstance(stats_data, str):
-                __data = numpy.load(stats_data)
+        if isinstance(stats_data, str):
+            __data = numpy.load(stats_data)
+        else:
+            __data = numpy.array(stats_data, dtype=numpy.float32)
 
-            else:
-                __data = numpy.array(stats_data, dtype=numpy.float32)
+        x,y = __data[:,0], __data[:,1]
 
-            x,y = __data[:,0], __data[:,1]
-
-        elif mode=='calc':
-            # x,y = self.estimate_noise()
-            pass
-        
         if normalise:
             y /= y.max()
 
@@ -176,7 +163,7 @@ class MSNoise(object):
         for spw in range(self.nspw):
             tab = table(self.ms, readonly=False)
             # Write data into MS in chunks
-            rowchunk = rowchunk or self.nrows/10
+            rowchunk = rowchunk or max(self.nrows//10, 1)
             for row0 in range(0, self.nrows, rowchunk):
                 nr = min(rowchunk, self.nrows-row0)
                 # Shape for this chunk
@@ -185,16 +172,16 @@ class MSNoise(object):
                 # Consider old weights if user wants to
                 if multiply_old_weights:
                     old_weight = tab.getcol('WEIGHT', row0, nr)
-                    print("Multiplying old weights into WEIGHT_SPECTRUM")
+                    LOGGER.info("Multiplying old weights into WEIGHT_SPECTRUM")
                     __data *= old_weight[:,numpy.newaxis,:]
                 # make a masked array to compute stats using unflagged data
                 flags = tab.getcol('FLAG', row0, nr)
                 mdata = ma.masked_array(__data, mask=flags)
-                
-                print(("Populating {0:s} column (rows {1:d} to {2:d})".format(columns[1], row0, row0+nr-1)))
+
+                LOGGER.info("Populating %s column (rows %d to %d)", columns[1], row0, row0+nr-1)
                 tab.putcol(columns[1], __data, row0, nr)
-                
-                print(("Populating {0:s} column (rows {1:d} to {2:d})".format(columns[0], row0, row0+nr-1)))
+
+                LOGGER.info("Populating %s column (rows %d to %d)", columns[0], row0, row0+nr-1)
                 if stat=="stddev":
                     tab.putcol(columns[0], mdata.std(axis=1).data, row0, nr)
                 elif stat=="sum":

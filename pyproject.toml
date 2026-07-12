@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "msutils"
-version = "1.3.0"
+version = "2.0.0b1"
 description = "Tools for playing with Measurement sets."
 readme = "README.md"
 license = "GPL-2.0-or-later"
@@ -20,13 +20,26 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Scientific/Engineering :: Astronomy",
 ]
+# Base install covers the core column operations in msutils.msutils only.
+# Heavier, feature-specific stacks live in optional extras below.
 dependencies = [
     "numpy",
-    "scipy",
-    "matplotlib",
+    "python-casacore",
+]
+
+[project.optional-dependencies]
+# msutils.flag_stats: out-of-core flag statistics + Bokeh HTML plots
+flagstats = [
     "dask-ms",
     "bokeh",
-    "python-casacore",
+]
+# msutils.ClassESW and msutils.imp_plotter: matplotlib/scipy plotting + weights
+plots = [
+    "matplotlib",
+    "scipy",
+]
+all = [
+    "msutils[flagstats,plots]",
 ]
 
 [dependency-groups]

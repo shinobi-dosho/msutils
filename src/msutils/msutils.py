@@ -1,55 +1,53 @@
-from pyrap.tables import table
-import pyrap.tables
-import pyrap.measures
-import numpy
 import traceback
-from pyrap.tables import maketabdesc
-from pyrap.tables import makearrcoldesc
-from pyrap.tables import makescacoldesc
-from distutils import spawn
-import sys
-import subprocess
 import math
 import json
 import codecs
-import os
+
+import numpy
+import pyrap.tables
+import pyrap.measures
+from pyrap.tables import table, maketabdesc, makearrcoldesc
+
+from ._log import create_logger
+
+LOGGER = create_logger(__name__)
 
 dm = pyrap.measures.measures()
 
-STOKES_TYPES = { 
-    0  : "Undefined", 
-    1  : "I", 
-    2  : "Q", 
-    3  : "U", 
-    4  : "V", 
-    5  : "RR", 
-    6  : "RL", 
-    7  : "LR", 
-    8  : "LL", 
-    9  : "XX", 
-    10 : "XY", 
-    11 : "YX", 
-    12 : "YY", 
-    13 : "RX", 
-    14 : "RY", 
-    15 : "LX", 
-    16 : "LY", 
-    17 : "XR", 
-    18 : "XL", 
-    19 : "YR", 
-    20 : "YL", 
-    21 : "PP", 
-    22 : "PQ", 
-    23 : "QP", 
-    24 : "QQ", 
-    25 : "RCircular", 
-    26 : "LCircular", 
-    27 : "Linear", 
-    28 : "Ptotal", 
-    29 : "Plinear", 
-    30 : "PFtotal", 
-    31 : "PFlinear", 
-    32 : "Pangle", 
+STOKES_TYPES = {
+    0  : "Undefined",
+    1  : "I",
+    2  : "Q",
+    3  : "U",
+    4  : "V",
+    5  : "RR",
+    6  : "RL",
+    7  : "LR",
+    8  : "LL",
+    9  : "XX",
+    10 : "XY",
+    11 : "YX",
+    12 : "YY",
+    13 : "RX",
+    14 : "RY",
+    15 : "LX",
+    16 : "LY",
+    17 : "XR",
+    18 : "XL",
+    19 : "YR",
+    20 : "YL",
+    21 : "PP",
+    22 : "PQ",
+    23 : "QP",
+    24 : "QQ",
+    25 : "RCircular",
+    26 : "LCircular",
+    27 : "Linear",
+    28 : "Ptotal",
+    29 : "Plinear",
+    30 : "PFtotal",
+    31 : "PFlinear",
+    32 : "Pangle",
 }
 
 def summary(msname, outfile=None, display=True):
@@ -80,7 +78,6 @@ def summary(msname, outfile=None, display=True):
     fields = numpy.unique(tab.getcol("FIELD_ID"))
     info["FIELD"]["FIELD_ID"] = list(map(int, fields))
     nfields = len(fields)
-    nant = tabs['ANT'].nrows()
 
     info['EXPOSURE'] = tab.getcell("EXPOSURE", 0)
 
@@ -102,7 +99,7 @@ def summary(msname, outfile=None, display=True):
         info['SCAN'][str(fid)] = scans
         info['FIELD']['PERIOD'][i] = total_length
         ftab.close()
-        
+
     for key, _tab in list(tabs.items()):
         if key == 'SPW':
             colnames = 'CHAN_FREQ MEAS_FREQ_REF REF_FREQUENCY TOTAL_BANDWIDTH NAME NUM_CHAN IF_CONV_CHAIN NET_SIDEBAND FREQ_GROUP_NAME'.split()
@@ -133,8 +130,8 @@ def summary(msname, outfile=None, display=True):
     tab.close()
 
     if display:
-        print(info)
-    
+        LOGGER.info(info)
+
     if outfile:
         with codecs.open(outfile, 'w', 'utf8') as stdw:
             stdw.write(json.dumps(info, ensure_ascii=False))
@@ -143,29 +140,29 @@ def summary(msname, outfile=None, display=True):
 
 
 def addcol(msname, colname=None, shape=None,
-           data_desc_type='array', 
-           valuetype=None, 
+           data_desc_type='array',
+           valuetype=None,
            init_with=None,
            coldesc=None,
            coldmi=None,
            clone='DATA',
            rowchunk=None,
            **kw):
-    """ Add column to MS 
+    """ Add column to MS
         msanme : MS to add colmn to
         colname : column name
         shape : shape
-        valuetype : data type 
+        valuetype : data type
         data_desc_type : 'scalar' for scalar elements and array for 'array' elements
-        init_with : value to initialise the column with 
+        init_with : value to initialise the column with
     """
     tab = table(msname,readonly=False)
 
     if colname in tab.colnames():
-        print('Column already exists')
+        LOGGER.info('Column already exists')
         return 'exists'
 
-    print(('Attempting to add %s column to %s'%(colname,msname)))
+    LOGGER.info('Attempting to add %s column to %s', colname, msname)
 
     valuetype = valuetype or 'complex'
 
@@ -173,32 +170,32 @@ def addcol(msname, colname=None, shape=None,
         data_desc = coldesc
         shape = coldesc['shape']
     elif shape:
-        data_desc = maketabdesc(makearrcoldesc(colname, 
+        data_desc = maketabdesc(makearrcoldesc(colname,
                     init_with,
                     shape=shape,
                     valuetype=valuetype))
     elif valuetype == 'scalar':
-        data_desc = maketabdesc(makearrcoldesc(colname, 
+        data_desc = maketabdesc(makearrcoldesc(colname,
                     init_with,
                     valuetype=valuetype))
     elif clone:
         element = tab.getcell(clone, 0)
         try:
             shape = element.shape
-            data_desc = maketabdesc(makearrcoldesc(colname, 
+            data_desc = maketabdesc(makearrcoldesc(colname,
                         element.flatten()[0],
                         shape=shape,
                         valuetype=valuetype))
         except AttributeError:
             shape = []
-            data_desc = maketabdesc(makearrcoldesc(colname, 
+            data_desc = maketabdesc(makearrcoldesc(colname,
                         element,
                         valuetype=valuetype))
-    
+
     colinfo = [data_desc, coldmi] if coldmi else [data_desc]
     tab.addcols(*colinfo)
 
-    print('Column added successfuly.')
+    LOGGER.info('Column added successfuly.')
 
     if init_with is None:
         tab.close()
@@ -206,16 +203,16 @@ def addcol(msname, colname=None, shape=None,
     else:
         spwids = set(tab.getcol('DATA_DESC_ID'))
         for spw in spwids:
-            print(('Initialising {0:s} column with {1}. DDID is {2:d}'.format(colname, init_with, spw)))
+            LOGGER.info('Initialising {0:s} column with {1}. DDID is {2:d}'.format(colname, init_with, spw))
             tab_spw = tab.query('DATA_DESC_ID=={0:d}'.format(spw))
             nrows = tab_spw.nrows()
 
-            rowchunk = rowchunk or nrows/10
+            rowchunk = rowchunk or max(nrows//10, 1)
             dshape = [0] + [a for a in shape]
             for row0 in range(0,nrows,rowchunk):
                 nr = min(rowchunk,nrows-row0)
                 dshape[0] = nr
-                print(("Wrtiting to column  %s (rows %d to %d)"%(colname, row0, row0+nr-1)))
+                LOGGER.info("Wrtiting to column  %s (rows %d to %d)", colname, row0, row0+nr-1)
                 tab_spw.putcol(colname,numpy.ones(dshape,dtype=type(init_with))*init_with,row0,nr)
             tab_spw.close()
     tab.close()
@@ -230,7 +227,7 @@ def sumcols(msname, col1=None, col2=None, outcol=None, cols=None, subtract=False
 
     tab = table(msname, readonly=False)
     if outcol not in tab.colnames():
-        print(('outcol {0:s} does not exist, will add it first.'.format(outcol)))
+        LOGGER.info('outcol {0:s} does not exist, will add it first.'.format(outcol))
         addcol(msname, outcol, clone=col1 or cols[0])
 
     spws = set(tab.getcol('DATA_DESC_ID'))
@@ -240,7 +237,7 @@ def sumcols(msname, col1=None, col2=None, outcol=None, cols=None, subtract=False
         rowchunk = nrows//10 if nrows > 10000 else nrows
         for row0 in range(0, nrows, rowchunk):
             nr = min(rowchunk, nrows-row0)
-            print(("Wrtiting to column  %s (rows %d to %d)"%(outcol, row0, row0+nr-1)))
+            LOGGER.info("Wrtiting to column  %s (rows %d to %d)", outcol, row0, row0+nr-1)
             if subtract:
                 data = tab_spw.getcol(col1, row0, nr) - tab_spw.getcol(col2, row0, nr)
             else:
@@ -294,82 +291,53 @@ def compute_vis_noise(msname, sefd, spw_id=0):
     tab.close()
     spwtab.close()
 
-    print(("%s freq %.2f MHz (lambda=%.2fm), bandwidth %.2g kHz, %.2fs integrations, %.2fh synthesis"%(msname, 
-        freq0*1e-6, wavelength, bw*1e-3, dt, dtf/3600)))
+    LOGGER.info("%s freq %.2f MHz (lambda=%.2fm), bandwidth %.2g kHz, %.2fs integrations, %.2fh synthesis",
+                msname, freq0*1e-6, wavelength, bw*1e-3, dt, dtf/3600)
     noise = sefd/math.sqrt(abs(2*bw*dt))
-    print(("SEFD of %.2f Jy gives per-visibility noise of %.2f mJy"%(sefd, noise*1000)))
+    LOGGER.info("SEFD of %.2f Jy gives per-visibility noise of %.2f mJy", sefd, noise*1000)
 
     return noise
 
 
-def verify_antpos (msname, fix=False, hemisphere=None):
+def verify_antpos(msname, fix=False, hemisphere=None):
     """Verifies antenna Y positions in MS. If Y coordinate convention is wrong, either fixes the positions (fix=True) or
     raises an error. hemisphere=-1 makes it assume that the observatory is in the Western hemisphere, hemisphere=1
     in the Eastern, or else tries to find observatory name using MS and pyrap.measure."""
 
-
     if not hemisphere:
         obs = table(msname+"::OBSERVATION").getcol("TELESCOPE_NAME")[0]
-        print(("observatory is %s"%obs))
+        LOGGER.info("observatory is %s", obs)
         try:
-          hemisphere = 1 if dm.observatory(obs)['m0']['value'] > 0 else -1
-        except:
-          traceback.print_exc();
-          print(("WARNING:: %s is unknown, or pyrap.measures is missing. Will not verify antenna positions."%obs))
-          return 
-    print(("antenna Y positions should be of sign %+d"%hemisphere))
-    
+            hemisphere = 1 if dm.observatory(obs)['m0']['value'] > 0 else -1
+        except Exception:
+            traceback.print_exc()
+            LOGGER.warning("%s is unknown, or pyrap.measures is missing. Will not verify antenna positions.", obs)
+            return
+    LOGGER.info("antenna Y positions should be of sign %+d", hemisphere)
+
     anttab = table(msname+"::ANTENNA", readonly=False)
     pos = anttab.getcol("POSITION")
     wrong = pos[:,1]<0 if hemisphere>0 else pos[:,1]>0
     nw = sum(wrong)
 
-    if nw: 
+    if nw:
         if not fix:
-            os.abort("%s/ANTENNA has $nw incorrect Y antenna positions. Check your coordinate conversions (from UVFITS?), or run verify_antpos[fix=True]"%msname)
-        pos[wrong,1] *= -1; 
+            raise RuntimeError(
+                "%s/ANTENNA has %d incorrect Y antenna positions. Check your coordinate conversions "
+                "(from UVFITS?), or run verify_antpos(fix=True)" % (msname, nw))
+        pos[wrong,1] *= -1
         anttab.putcol("POSITION", pos)
-        print(("WARNING:%s/ANTENNA: %s incorrect antenna positions were adjusted (Y sign flipped)"%(msname, nw)))
+        LOGGER.warning("%s/ANTENNA: %s incorrect antenna positions were adjusted (Y sign flipped)", msname, nw)
     else:
-        print(("%s/ANTENNA: all antenna positions appear to have correct Y sign"%msname))
-
-
-def prep(msname, verify=False):
-    """Prepares MS for use with MeqTrees: adds imaging columns, adds BITFLAG columns, copies current flags
-       to 'legacy' flagset
-    """
-
-    if verify:
-        verify_antpos(msname, fix=verify);
-
-    print("Adding imaging columns")
-    pyrap.tables.addImagingColumns(msname)
-    
-    # check if addbitflagcol exists
-    if spawn.find_executable("addbitflagcol"):
-        print(("Adding bitflag column to %s"%msname))
-        subprocess.check_call(['addbitflagcol', msname],
-                         stderr=subprocess.PIPE if not isinstance(sys.stderr,file) else sys.stderr,  # noqa: F821 
-                         stdout=subprocess.PIPE if not isinstance(sys.stdout,file) else sys.stdout)  # noqa: F821
-    
-    if spawn.find_executable("flag-ms.py"):
-        print("Copying FLAG to bitflag 'legacy'")
-        subprocess.check_call(['flag-ms.py', '-Y', '+L', '-f', 'legacy', '-c', msname],
-                         stderr=subprocess.PIPE if not isinstance(sys.stderr,file) else sys.stderr,  # noqa: F821
-                         stdout=subprocess.PIPE if not isinstance(sys.stdout,file) else sys.stdout)  # noqa: F821
-
-        print("Flagging INFs/NaNs in data")
-        subprocess.Popen(['flag-ms.py', '--nan', '-f', 'legacy', '--data-column', 'DATA', '-x', msname],
-                         stderr=subprocess.PIPE if not isinstance(sys.stderr,file) else sys.stderr,  # noqa: F821
-                         stdout=subprocess.PIPE if not isinstance(sys.stdout,file) else sys.stdout)  # noqa: F821
+        LOGGER.info("%s/ANTENNA: all antenna positions appear to have correct Y sign", msname)
 
 
 def addnoise(msname, column='MODEL_DATA',
              noise=0, sefd=551,
-              rowchunk=None, 
-              addToCol=None, 
+              rowchunk=None,
+              addToCol=None,
               spw_id=None):
-    """ Add Gaussian noise to MS, given a stdandard deviation (noise). 
+    """ Add Gaussian noise to MS, given a stdandard deviation (noise).
         This noise can be also be calculated given SEFD value
     """
 
@@ -390,8 +358,8 @@ def addnoise(msname, column='MODEL_DATA',
         nrows = tab_spw.nrows()
         nchan,ncor = tab_spw.getcell('DATA', 0).shape
 
-        rowchunk = rowchunk or nrows/10
-         
+        rowchunk = rowchunk or max(nrows//10, 1)
+
         for row0 in range(0, nrows, rowchunk):
             nr = min(rowchunk, nrows-row0)
             data = numpy.random.randn(nr, nchan, ncor) + 1j*numpy.random.randn(nr, nchan, ncor)
@@ -399,11 +367,11 @@ def addnoise(msname, column='MODEL_DATA',
                 noise = noise[numpy.newaxis,:,numpy.newaxis]
             data *= noise
 
-            if addToCol: 
+            if addToCol:
                 data += tab_spw.getcol(addToCol, row0, nr)
-                print(("%s + noise --> %s (rows %d to %d)"%(addToCol, column, row0, row0+nr-1)))
-            else: 
-                print(("Adding noise to column %s (rows %d to %d)"%(column, row0, row0+nr-1)))
+                LOGGER.info("%s + noise --> %s (rows %d to %d)", addToCol, column, row0, row0+nr-1)
+            else:
+                LOGGER.info("Adding noise to column %s (rows %d to %d)", column, row0, row0+nr-1)
 
             tab_spw.putcol(column, data, row0, nr)
         tab_spw.close()

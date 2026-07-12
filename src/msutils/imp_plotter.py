@@ -3,6 +3,9 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
 from pyrap.tables import table
+from ._log import create_logger
+
+LOGGER = create_logger(__name__)
 
 def plot_bandpass_table(gain_table, plt_scale=6, plt_dpi=600, plot_file=None):
 #Reads in the gain table; makes plots of gain amplitude/phase with 
@@ -11,14 +14,14 @@ def plot_bandpass_table(gain_table, plt_scale=6, plt_dpi=600, plot_file=None):
 #Read in the table
    plot_file = plot_file or gain_table+'.png'
    G_tab = table(gain_table)
-   print(('Reading gain table:', gain_table, '\n'))
+   LOGGER.info('Reading gain table: %s', gain_table)
    G_tab_names = table(gain_table+"::ANTENNA")
    ant_names = G_tab_names.getcol("NAME")
-   print(("Antennas present in the table:", ant_names))
+   LOGGER.info("Antennas present in the table: %s", ant_names)
 
 #Get number of antennas (needed for plotting)       
    N_ants = len(ant_names)
-   print(('Number of Antennas to plot:', N_ants))    
+   LOGGER.info('Number of Antennas to plot: %s', N_ants)    
 
 
 #Read in the Frequency information
@@ -70,13 +73,13 @@ def plot_bandpass_table(gain_table, plt_scale=6, plt_dpi=600, plot_file=None):
    matplotlib.rcParams['legend.framealpha'] = 0.5
    matplotlib.rcParams['font.style'] = 'italic'
 #   matplotlib.rcParams[]
-   print("Starting plotting process")
+   LOGGER.info("Starting plotting process")
    #plt_dpi=800
    f, axarr = plt.subplots(nplts, nplts, dpi=plt_dpi, figsize=(nplts*plt_scale,nplts*plt_scale))
    f.text(0.5,0.94,"Bandpass Plot",ha='center',fontsize=40)
    f.text(0.5, 0.04, 'Frequency (GHz)', ha='center',fontsize=30)
    f.text(0.04, 0.5, 'Gain Amp', va='center', rotation='vertical',fontsize=30)
-   print("Defining plots completed")
+   LOGGER.info("Defining plots completed")
 #Plot amplitudes first
    globmax = np.round(np.max(np.maximum(Gsols_VV_amp, Gsols_HH_amp)),1)
    globmin = np.round(np.min(np.minimum(Gsols_VV_amp, Gsols_HH_amp)),1)
@@ -93,12 +96,12 @@ def plot_bandpass_table(gain_table, plt_scale=6, plt_dpi=600, plot_file=None):
            if ( ((i*nplts)+(j+1))> N_ants):
               axarr[i,j].set_visible(False)
   
-   print("iterating finished...")
+   LOGGER.info("iterating finished...")
    plot_f = plot_file+"-bandpass-amp.png"
    f.savefig(plot_f) 
-   print("plotting finished")
+   LOGGER.info("plotting finished")
    plt.close(f)
-   print("cleaning up")
+   LOGGER.info("cleaning up")
    f, axarr = plt.subplots(nplts, nplts, dpi=plt_dpi, figsize=(nplts*plt_scale,nplts*plt_scale))
    f.text(0.5,0.94,"Bandpass Plot",ha='center',fontsize=40)
    f.text(0.5, 0.04, 'Frequency(GHz)', ha='center',fontsize=30)
@@ -128,7 +131,7 @@ def plot_bandpass_table(gain_table, plt_scale=6, plt_dpi=600, plot_file=None):
    G_tab.close()
    G_tab_names.close()
    plt.clf()
-   print("Plotting and cleaning over")
+   LOGGER.info("Plotting and cleaning over")
 
 def plot_gain_table(gain_table, plt_scale=6, plt_dpi=600, plot_file=None):
 #Reads in the gain table; makes plots of gain amplitude/phase with 
@@ -137,17 +140,17 @@ def plot_gain_table(gain_table, plt_scale=6, plt_dpi=600, plot_file=None):
 #Read in the table
    plot_file = plot_file or gain_table+'.png'
    G_tab = table(gain_table)
-   print(('Reading gain table:', gain_table, '\n'))
+   LOGGER.info('Reading gain table: %s', gain_table)
    G_tab_names = table(gain_table+"::ANTENNA")
    ant_names = G_tab_names.getcol("NAME")
-   print(("Antennas present in the table:", ant_names))
+   LOGGER.info("Antennas present in the table: %s", ant_names)
 
 #Get number of antennas (needed for plotting)       
    Ant_n1 = G_tab.getcol("ANTENNA1")
    Ant_n2 = G_tab.getcol("ANTENNA2")
    Ant_list = list(set(np.append(Ant_n1,Ant_n2)))
    N_ants = len(ant_names)
-   print(('Number of Antennas to plot:', N_ants))
+   LOGGER.info('Number of Antennas to plot: %s', N_ants)
 
 #Read in the flags
    flags = G_tab.getcol("FLAG")
@@ -156,7 +159,7 @@ def plot_gain_table(gain_table, plt_scale=6, plt_dpi=600, plot_file=None):
    Gsols = G_tab.getcol("CPARAM")
    nchans = Gsols.shape[1]
    nsols  = Gsols.shape[0]//N_ants
-   print(("Number of solution per antenna:", nsols))
+   LOGGER.info("Number of solution per antenna: %s", nsols)
    npol = Gsols.shape[2]
 #Read in the error.
    Gsols_err = G_tab.getcol("PARAMERR")
@@ -169,7 +172,7 @@ def plot_gain_table(gain_table, plt_scale=6, plt_dpi=600, plot_file=None):
 
    Gsols_HH = Gsols[:,:,0]
    Gsols_VV = Gsols[:,:,1]
-   print(("Shape of solutions:", np.shape(Gsols_HH), np.shape(Gsols_VV)))
+   LOGGER.info("Shape of solutions: %s %s", np.shape(Gsols_HH), np.shape(Gsols_VV))
    Gsols_HH_flag = np.ma.masked_array(Gsols_HH, mask=flags[:,:,0])
    Gsols_VV_flag = np.ma.masked_array(Gsols_VV, mask=flags[:,:,1])
    Gsols_HH_amp = abs(Gsols_HH_flag)
@@ -272,17 +275,17 @@ def plot_delay_table(gain_table, plt_scale=6, plt_dpi=600, plot_file=None):
 #Read in the table
    plot_file = plot_file or gain_table+'.png'
    G_tab = table(gain_table)
-   print(('Reading gain table:', gain_table, '\n'))
+   LOGGER.info('Reading gain table: %s', gain_table)
    G_tab_names = table(gain_table+"::ANTENNA")
    ant_names = G_tab_names.getcol("NAME")
-   print(("Antennas present in the table:", ant_names))
+   LOGGER.info("Antennas present in the table: %s", ant_names)
 
 #Get number of antennas (needed for plotting)       
    Ant_n1 = G_tab.getcol("ANTENNA1")
    Ant_n2 = G_tab.getcol("ANTENNA2")
   # Ant_list = list(set(np.append(Ant_n1,Ant_n2)))
    N_ants = len(ant_names)
-   print(('Number of Antennas to plot:', N_ants))
+   LOGGER.info('Number of Antennas to plot: %s', N_ants)
 
 #Read in the flags
    flags = G_tab.getcol("FLAG")
@@ -291,7 +294,7 @@ def plot_delay_table(gain_table, plt_scale=6, plt_dpi=600, plot_file=None):
    Gsols = G_tab.getcol("FPARAM")
    nchans = Gsols.shape[1]
    nsols  = Gsols.shape[0]//N_ants   
-   print(("Number of solutions per antenna:", nsols))
+   LOGGER.info("Number of solutions per antenna: %s", nsols)
    npol = Gsols.shape[2]
 #Read in the error.
    Gsols_err = G_tab.getcol("PARAMERR")
@@ -304,13 +307,13 @@ def plot_delay_table(gain_table, plt_scale=6, plt_dpi=600, plot_file=None):
 
    Gsols_HH = Gsols[:,:,0]
    Gsols_VV = Gsols[:,:,1]
-   print(("Shape of solutions:", np.shape(Gsols_HH), np.shape(Gsols_VV)))
+   LOGGER.info("Shape of solutions: %s %s", np.shape(Gsols_HH), np.shape(Gsols_VV))
    Gsols_HH_plt = np.ma.masked_array(Gsols_HH, mask=flags[:,:,0])
    Gsols_VV_plt = np.ma.masked_array(Gsols_VV, mask=flags[:,:,1])
    #Plotting
 #Plot in a more or less square grid.
    nplts = int(np.sqrt(N_ants))+1       #(if non zero remainder, add one)
-   print(("Number of plots:", nplts*nplts))
+   LOGGER.info("Number of plots: %s", nplts*nplts)
 
 #Set Global matplotlib options
    matplotlib.rcParams['lines.markersize'] = 15.0

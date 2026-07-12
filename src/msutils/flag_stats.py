@@ -1,34 +1,20 @@
-#from contextlib import ExitStack
-import sys
 import math
 import json
 import numpy
-import logging
 
 import casacore.measures
 
 from . import msutils
+from ._log import create_logger
 
 import dask
 import dask.array as da
-from daskms import xds_from_ms, xds_to_table, xds_from_table
+from daskms import xds_from_ms, xds_from_table
 
 from bokeh.layouts import row, column
 from bokeh.plotting import figure, output_file, save
 
-def create_logger():
-    """Create a console logger"""
-    log = logging.getLogger(__name__)
-    cfmt = logging.Formatter(('%(name)s - %(asctime)s %(levelname)s - %(message)s'))
-    log.setLevel(logging.DEBUG)
-    console = logging.StreamHandler()
-    console.setLevel(logging.INFO)
-    console.setFormatter(cfmt)
-    log.addHandler(console)
-    return log
-
-
-LOGGER = create_logger()
+LOGGER = create_logger(__name__)
 
 
 def _get_ant_flags(names, antenna1, antenna2, flags):
@@ -41,7 +27,7 @@ def _get_ant_flags(names, antenna1, antenna2, flags):
     for i in range(nant):
         flag_sum = flags[numpy.logical_or(antenna1==i, antenna2==i)]
         fracs[i,0] += flag_sum.sum()
-        fracs[i,1] += numpy.product(flag_sum.shape)
+        fracs[i,1] += numpy.prod(flag_sum.shape)
     return fracs
 
 def _get_flags(names, flags):
@@ -53,7 +39,7 @@ def _get_flags(names, flags):
     fracs = numpy.zeros([num,2], dtype=numpy.float64)
     for i in range(num):
         fracs[i,0] = flags.sum()
-        fracs[i,1] = numpy.product(flags.shape)
+        fracs[i,1] = numpy.prod(flags.shape)
     return fracs
 
 def _chunk(x, keepdims, axis):
@@ -144,9 +130,9 @@ def antenna_flags_field(msname, fields=None, antennas=None):
                          obs_cofa['m1']['value'],
                          obs_cofa['m2']['value'])
         cofa = wgs84_to_ecef(lon, lat, alt)
-    except:
+    except Exception:
         # Otherwise use the first id antenna as array centre
-        LOGGER.warn("Using the first id antenna as array centre.")
+        LOGGER.warning("Using the first id antenna as array centre.")
         cofa = ant_positions[0]
 
     if fields:
@@ -165,9 +151,6 @@ def antenna_flags_field(msname, fields=None, antennas=None):
     else:
         ant_ids = list(range(len(ant_names)))
 
-    nant = len(ant_ids)
-    nfield = len(field_ids)
-    fields_str = ", ".join(map(str, field_ids))
     missing_antennas = []
 
     flag_sum_computes = []
@@ -193,7 +176,7 @@ def antenna_flags_field(msname, fields=None, antennas=None):
             flag_sum_computes.append(flags_redux)
         else:
            missing_antennas.append(ant_id)
-           LOGGER.warn(f"No data found for Antenna-Id: {ant_id}")
+           LOGGER.warning(f"No data found for Antenna-Id: {ant_id}")
 
 
     stats = {}
@@ -201,7 +184,7 @@ def antenna_flags_field(msname, fields=None, antennas=None):
     ant_ids = [ant_id for ant_id in ant_ids if ant_id not in missing_antennas]
     for i,aid in enumerate(ant_ids):
         ant_stats = {}
-        ant_pos = list(ant_positions[i])
+        ant_pos = list(ant_positions[aid])
         fraction = sum_per_antenna[i][0][0]/sum_per_antenna[i][0][1]
         ant_stats["name"] = ant_names[aid]
         ant_stats["position"] = ant_pos
@@ -215,7 +198,6 @@ def antenna_flags_field(msname, fields=None, antennas=None):
 
 def scan_flags_field(msname, fields=None):
     ds_field = xds_from_table(msname+"::FIELD")[0]
-    ds_obs = xds_from_table(msname+"::OBSERVATION")[0]
     field_names = ds_field.NAME.data.compute()
     LOGGER.info("Computing scan flag stats data...")
 
@@ -268,7 +250,6 @@ def scan_flags_field(msname, fields=None):
 
 def source_flags_field(msname, fields=None):
     ds_field = xds_from_table(msname+"::FIELD")[0]
-    ds_obs = xds_from_table(msname+"::OBSERVATION")[0]
     field_names = ds_field.NAME.data.compute()
     LOGGER.info("Computing field flag stats data...")
     LOGGER.info(f"Field Names: {field_names}")
@@ -281,9 +262,7 @@ def source_flags_field(msname, fields=None):
     else:
         field_ids = list(range(len(field_names)))
 
-    fields_str = ", ".join(map(str, field_ids))
     flag_sum_computes = []
-    nfields = len(field_ids)
     missing_fields = []
 
     for field_id in field_ids:
@@ -305,7 +284,7 @@ def source_flags_field(msname, fields=None):
             flag_sum_computes.append(flags_redux)
         else:
            missing_fields.append(field_id)
-           LOGGER.warn(f"No data for field-Id: {field_id}")
+           LOGGER.warning(f"No data for field-Id: {field_id}")
 
     stats = {}
     sum_per_field_spw = dask.compute(flag_sum_computes)[0]
@@ -325,7 +304,6 @@ def source_flags_field(msname, fields=None):
 
 def correlation_flags_field(msname, fields=None):
     ds_field = xds_from_table(msname+"::FIELD")[0]
-    ds_obs = xds_from_table(msname+"::OBSERVATION")[0]
     ds_pols = xds_from_table(msname+"::POLARIZATION")[0]
     corr_names = [msutils.STOKES_TYPES[corr] for corr in list(ds_pols.CORR_TYPE.data.compute()[0])]
     field_names = ds_field.NAME.data.compute()
@@ -347,7 +325,6 @@ def correlation_flags_field(msname, fields=None):
                          chunks={'row': 100000},
                          taql_where="FIELD_ID IN [%s]" % fields_str)
     flag_sum_computes = []
-    nfields = len(field_ids)
 
     for ds in ds_mss:
         flag_sums = da.blockwise(_get_flags, ("row",),
