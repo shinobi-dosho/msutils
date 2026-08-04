@@ -28,7 +28,9 @@ collections are addressable by name as well as by id
 - **`MAXBL`** used only the *u* and *v* components, making it a projected uv
   distance under a baseline-length name. `msinfo` reports `max_baseline` (the
   physical antenna separation) and `max_uv_distance` separately.
-- **`EXPOSURE`** was row 0's value presented as an MS-wide property.
+- **`EXPOSURE`** was row 0's value presented as an MS-wide property. It is
+  now the shortest integration time present; the legacy dict holds one scalar,
+  so `msinfo` exposes the full set as `integration_times`.
 - **Multiple polarization setups** were ignored; only `POLARIZATION` row 0 was
   read.
 

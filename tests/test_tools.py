@@ -238,6 +238,39 @@ def test_flag_backup_and_restore(ms):
     assert numpy.array_equal(_getcol(ms, "FLAG"), original)
 
 
+def test_flag_versions_are_ordered_by_creation_not_name(ms):
+    """`flag_versions()` promises oldest first, and must mean it.
+
+    Sorting the directory listing only agrees with creation order for the
+    default `backup_<timestamp>` names. These names are deliberately
+    lexicographically backwards from the order they are written in.
+    """
+    import os
+    import time
+
+    for name in ("zulu", "mike", "alpha"):
+        flag_backup(ms, name=name)
+        # mtime resolution is coarse enough to tie without this
+        time.sleep(0.01)
+    # make the intended order unambiguous regardless of filesystem granularity
+    root = ms + ".flagversions"
+    for index, name in enumerate(("zulu", "mike", "alpha")):
+        path = os.path.join(root, "flags." + name)
+        os.utime(path, (1_700_000_000 + index, 1_700_000_000 + index))
+
+    assert [v.name for v in flag_versions(ms)] == ["zulu", "mike", "alpha"]
+    assert flag_versions(ms)[-1].name == "alpha"  # newest last
+
+
+def test_flag_version_records_when_it_was_written(ms):
+    version = flag_backup(ms, name="v1")
+    listed = flag_versions(ms)[0]
+    assert listed.created is not None
+    assert listed.created_utc.startswith("20")
+    assert listed.to_dict()["created_utc"] == listed.created_utc
+    assert version.name == listed.name
+
+
 def test_flag_versions_listing(ms):
     flag_backup(ms, name="first", description="one")
     flag_backup(ms, name="second", description="two")

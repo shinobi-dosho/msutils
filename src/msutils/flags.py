@@ -45,6 +45,18 @@ class FlagVersion:
     description: str = ""
     path: str = ""
     nrows: int = 0
+    #: When the version was written, as unix epoch seconds. ``None`` for a
+    #: version whose directory cannot be stat'd.
+    created: float | None = None
+
+    @property
+    def created_utc(self) -> str | None:
+        """``created`` as an ISO-8601 UTC string."""
+        if self.created is None:
+            return None
+        return datetime.datetime.fromtimestamp(self.created, tz=datetime.UTC).strftime(
+            "%Y-%m-%dT%H:%M:%S"
+        )
 
     def to_dict(self) -> dict:
         return {
@@ -52,6 +64,8 @@ class FlagVersion:
             "description": self.description,
             "path": self.path,
             "nrows": self.nrows,
+            "created": self.created,
+            "created_utc": self.created_utc,
         }
 
 
@@ -138,7 +152,14 @@ def flag_restore(msname: str, name: str, rowchunk: int = 100000) -> FlagVersion:
 
 
 def flag_versions(msname: str) -> list[FlagVersion]:
-    """List the saved flag versions for an MS, newest last."""
+    """List the saved flag versions for an MS, oldest first.
+
+    Ordered by when each version was written, not by name. Sorting the
+    directory listing would only agree with that for the default
+    ``backup_<timestamp>`` names -- give two versions names of your own and
+    lexicographic order says nothing about which is the latest, which is the
+    question this list is usually asked.
+    """
     root = _versions_dir(msname)
     if not os.path.isdir(root):
         return []
@@ -159,10 +180,22 @@ def flag_versions(msname: str) -> list[FlagVersion]:
         except RuntimeError:  # not a readable table
             LOGGER.warning("Skipping unreadable flag version at %s", path)
             continue
+        try:
+            created = os.path.getmtime(path)
+        except OSError:  # pragma: no cover - raced with a delete
+            created = None
         versions.append(
-            FlagVersion(name=name, description=descriptions.get(name, ""), path=path, nrows=nrows)
+            FlagVersion(
+                name=name,
+                description=descriptions.get(name, ""),
+                path=path,
+                nrows=nrows,
+                created=created,
+            )
         )
-    return versions
+    # Name breaks ties: mtime resolution can put two versions written in the
+    # same instant in an arbitrary order otherwise.
+    return sorted(versions, key=lambda v: (v.created if v.created is not None else 0.0, v.name))
 
 
 def flag_delete(msname: str, name: str) -> None:

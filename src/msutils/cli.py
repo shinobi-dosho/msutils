@@ -359,7 +359,10 @@ def flags_list(ms):
         click.echo("(no saved flag versions)")
         return
     for version in versions:
-        click.echo(f"{version.name:<24} {version.nrows:>10} rows  {version.description}")
+        click.echo(
+            f"{version.name:<24} {version.nrows:>10} rows  "
+            f"{version.created_utc or '-':<20} {version.description}"
+        )
 
 
 @flags.command("delete")

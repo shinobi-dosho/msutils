@@ -17,7 +17,11 @@ previously were not**:
   integration (and reporting 0 for single-timestamp scans).
 * ``MAXBL`` is now the longest baseline over all three UVW components. It used
   to use only *u* and *v*, making it a projected *uv* distance.
-* ``EXPOSURE`` is now the set of integration times present, not row 0's value.
+* ``EXPOSURE`` is now the shortest integration time present, rather than
+  whatever row 0 happened to hold. Like ``STATE_ID`` below, the legacy dict has
+  room for exactly one scalar here, so an MS with mixed integration times
+  cannot be represented faithfully -- :func:`msutils.msinfo` exposes the full
+  set as ``MSInfo.integration_times``.
 
 Code that depended on the old (wrong) numbers should move to
 :func:`msutils.msinfo`.
@@ -76,6 +80,8 @@ def summary(msname: str, outfile: str | None = None, display: bool = True) -> di
         "ANT": {},
         "MAXBL": info.max_baseline,
         "SCAN": {},
+        # The shortest integration time present. One scalar is all the legacy
+        # layout has room for; `MSInfo.integration_times` carries the full set.
         "EXPOSURE": (info.integration_times[0] if info.integration_times else None),
         "NROW": info.nrows,
         "CORR": {},
