@@ -19,9 +19,13 @@ from ._ms import (
     verify_antpos,
     addnoise,
 )
+from .info import MSInfo, detect_format, msinfo
 
 __all__ = [
     "STOKES_TYPES",
+    "msinfo",
+    "MSInfo",
+    "detect_format",
     "summary",
     "addcol",
     "sumcols",
