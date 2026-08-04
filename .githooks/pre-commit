@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+#
+# msutils pre-commit hook: lint and format-check the Python a commit touches.
+# Tracked in the repo and enabled per clone with
+#
+#     git config core.hooksPath .githooks
+#
+# (see CONTRIBUTING.md). Git deliberately will not let a repository install an
+# executable hook by itself, so that one command is unavoidable -- but the
+# script is version-controlled, reviewable in diffs, and identical for
+# everyone, which is the part that actually matters.
+#
+# It installs nothing and pins nothing. Both checks run through `uv run`, so
+# they use this project's own pinned `ruff` -- the same one CI's lint and
+# format jobs use, and the same one you get on the command line. There is no
+# second tool with its own version universe to drift.
+#
+# Only what the commit touched: a commit with no Python in it skips both checks
+# in milliseconds. Charging a README fix for a full lint run teaches people to
+# reach for --no-verify.
+#
+# Bypass with `git commit --no-verify` when you genuinely need to.
+
+set -uo pipefail
+
+# Both checks are uv operations, so there is no meaningful degraded mode
+# without it -- say so and get out of the way, rather than blocking a commit on
+# a missing tool.
+if ! command -v uv >/dev/null 2>&1; then
+    echo "pre-commit: 'uv' not on PATH -- skipping lint and format checks." >&2
+    exit 0
+fi
+
+staged=$(git diff --cached --name-only --diff-filter=ACM -z | tr '\0' '\n')
+status=0
+
+# Reads the working tree, not the staged blobs -- same simplification the rest
+# of git's hook ecosystem makes. Stage half a file and you lint the whole one.
+mapfile -t py < <(printf '%s\n' "$staged" | grep -E '\.pyi?$')
+
+if [ ${#py[@]} -gt 0 ]; then
+    # Captured rather than streamed: a passing commit should print nothing. On
+    # failure the whole thing goes to stderr, findings included.
+    #
+    # --force-exclude: honour ruff's own excludes even though the filenames are
+    # passed explicitly.
+    if ! output=$(uv run --quiet ruff check --force-exclude -- "${py[@]}" 2>&1); then
+        printf '%s\n' "$output" >&2
+        cat >&2 <<'MSG'
+
+pre-commit: ruff check rejected staged Python.
+
+  fix:    uv run ruff check --fix <file>, or fix by hand
+  bypass: git commit --no-verify
+
+MSG
+        status=1
+    fi
+
+    # --check rather than a rewrite: a hook that silently edits files leaves
+    # you committing something you never saw, and the fix is one command.
+    if ! output=$(uv run --quiet ruff format --check --force-exclude -- "${py[@]}" 2>&1); then
+        printf '%s\n' "$output" >&2
+        cat >&2 <<'MSG'
+
+pre-commit: staged Python is not ruff-formatted.
+
+  fix:    uv run ruff format <file> && git add <file>
+  bypass: git commit --no-verify
+
+MSG
+        status=1
+    fi
+fi
+
+exit $status

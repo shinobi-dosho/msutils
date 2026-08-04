@@ -4,24 +4,28 @@ build-backend = "hatchling.build"
 
 [project]
 name = "msutils"
-version = "2.0.0b1"
-description = "Tools for playing with Measurement sets."
+version = "3.0.0"
+description = "Everyday Measurement Set operations for radio-astronomy pipelines."
 readme = "README.md"
 license = "GPL-2.0-or-later"
-requires-python = ">=3.8"
+requires-python = ">=3.11"
 authors = [
     { name = "Sphesihle Makhathini", email = "sphemakh@gmail.com" },
 ]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Operating System :: OS Independent",
     "Programming Language :: Python",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Scientific/Engineering :: Astronomy",
 ]
-# Base install covers the core column operations in msutils.msutils only.
-# Heavier, feature-specific stacks live in optional extras below.
+# The base install covers everything that runs on casacore + TaQL: msinfo,
+# the column operations, subsetting, flag versions, flag statistics and the
+# diagnostics. Only genuinely heavier stacks are optional, below.
 dependencies = [
     "numpy",
     "python-casacore",
@@ -32,18 +36,38 @@ dependencies = [
 msutils = "msutils.cli:cli"
 
 [project.optional-dependencies]
-# msutils.flagstats: out-of-core flag statistics + matplotlib summary plots
-flagstats = [
-    "dask-ms",
-    "matplotlib",
-]
-# msutils.weights: matplotlib/scipy noise-weight estimation + diagnostic plot
+# PNG summary plots for flagstats.
 plots = [
     "matplotlib",
-    "scipy",
+]
+# msutils.average: time/channel averaging via codex-africanus.
+average = [
+    "codex-africanus>=0.4",
+]
+# Reading MSv4 processing sets. Plain xarray+zarr is enough -- xradio is
+# only needed to *write* one (the `convert` extra below).
+msv4 = [
+    "xarray>=2025.0",
+    "zarr",
+]
+# Reading an MSv2 through the MSv4 schema, without converting it.
+xarray-ms = [
+    "xarray-ms>=0.5",
+]
+# msutils.convert: writing MSv2 -> MSv4 processing sets.
+#
+# `ipython` is not ours: xradio pulls in `toolviper`, whose
+# `toolviper/utils/display.py` imports IPython unconditionally while its own
+# metadata does not require it. Converting therefore dies with
+# `ModuleNotFoundError: No module named 'IPython'` on an otherwise complete
+# install. Declared here so `msutils[convert]` actually converts; drop it when
+# toolviper declares its own dependency.
+convert = [
+    "xradio[casacore]>=1.2",
+    "ipython",
 ]
 all = [
-    "msutils[flagstats,plots]",
+    "msutils[plots,average,msv4,xarray-ms,convert]",
 ]
 
 [dependency-groups]
@@ -51,42 +75,112 @@ dev = [
     "pytest>=8.0",
     "ruff>=0.5",
 ]
-# `simms` generates the synthetic MS used by the behavioural tests. It is a
-# heavy, git-installed dependency (kept out of the published package metadata);
-# MS-backed tests skip when it is not importable.
+# Documentation build (Sphinx + Furo + autodoc). `uv sync --group docs`.
+# Keep in sync with docs/requirements.txt, which Read the Docs installs.
+docs = [
+    "sphinx>=7.2",
+    "furo>=2024.1",
+    "sphinx-copybutton>=0.5",
+    "myst-parser>=2.0",
+]
+# The behavioural tests build their own Measurement Sets with python-casacore
+# (see tests/msfactory.py), so the suite needs no simulator. The optional
+# stacks are included so the averaging and MSv4 tests actually run rather
+# than skipping.
 test = [
     "pytest>=8.0",
-    "simms @ git+https://github.com/wits-cfa/simms.git",
+    "matplotlib",
+    "codex-africanus>=0.4",
+    "xradio[casacore]>=1.2",
+    "xarray-ms>=0.5",
 ]
 
 [project.urls]
-Homepage = "https://github.com/SpheMakh/msutils"
-Repository = "https://github.com/SpheMakh/msutils"
-Issues = "https://github.com/SpheMakh/msutils/issues"
+Homepage = "https://msutils.readthedocs.io"
+Repository = "https://github.com/shinobi-dosho/msutils"
+Issues = "https://github.com/shinobi-dosho/msutils/issues"
+Documentation = "https://msutils.readthedocs.io"
+Changelog = "https://github.com/shinobi-dosho/msutils/blob/main/CHANGELOG.md"
 
 [tool.hatch.build.targets.wheel]
-# `MSUtils` is a deprecated alias shim that re-exports `msutils`.
-packages = ["src/msutils", "src/MSUtils"]
+packages = ["src/msutils"]
 
 [tool.hatch.build.targets.sdist]
 include = [
     "/src/msutils",
-    "/src/MSUtils",
     "/README.md",
     "/LICENSE",
+    "/AGENTS.md",
+    "/CONTRIBUTING.md",
+    "/CODE_OF_CONDUCT.md",
+    "/SECURITY.md",
+    "/CHANGELOG.md",
     "/pyproject.toml",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+# `tests` is on the path so test modules can import the msfactory helper.
+pythonpath = ["src", "tests"]
 addopts = "--import-mode=importlib"
-consider_namespace_packages = true
 
 [tool.ruff]
-line-length = 180
+line-length = 100
 
 [tool.ruff.lint]
-# Mirror the pre-refactor flake8 hard-fail gate: syntax errors and
-# undefined names only. `# noqa: F821` markers in the source are load-bearing.
-select = ["E9", "F63", "F7", "F82"]
+# `select`, not `extend-select` and not the implicit default. This list is the
+# repo's *whole* ruleset, stated outright rather than inherited from whatever
+# ruff happens to enable this month -- a ruff upgrade that widens its defaults
+# then shows up in the PR that bumps the lock, where it can be read, instead of
+# in whichever PR happens to follow.
+#
+# 2.x ran a four-rule gate (E9/F63/F7/F82) inherited from the old flake8 setup,
+# which caught syntax errors and undefined names and nothing else. The families
+# below are the ones whose findings on this tree were worth fixing, and they
+# are fixed -- nothing here is aspirational.
+select = [
+    "F",     # pyflakes -- real errors: undefined names, unused imports
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "B",     # bugbear -- mutable defaults, blind excepts, ...
+    "C4",    # comprehension rewrites
+    "DTZ",   # naive datetimes -- MS times are UTC, and it matters here
+    "EXE",   # shebang/executable-bit mismatches
+    "FA",    # missing `from __future__ import annotations`
+    "FURB",  # modernizations
+    "G",     # logging call format (no f-strings in logger.* -- lazy % args)
+    "I",     # import sorting
+    "ICN",   # conventional import aliases
+    "ISC",   # implicit string concatenation
+    "LOG",   # logging misuse
+    "PGH",   # blanket `# noqa` / `# type: ignore` without a code
+    "PLE",   # pylint errors
+    "PLW",   # pylint warnings
+    "Q",     # quote style
+    "RSE",   # `raise X()` not `raise X`
+    "RUF",   # ruff's own rules, incl. unused `# noqa`
+    "SIM",   # simplifications
+    "T10",   # stray debugger imports
+    "T20",   # stray `print` -- this is a library; CLI output goes through click
+    "TID",   # relative-import hygiene
+    "UP",    # pyupgrade -- the floor is 3.11, so PEP 585/604 apply
+    "YTT",   # sys.version misuse
+]
+ignore = [
+    # The formatter owns line length. E501 would only ever fire on lines
+    # `ruff format` has already declared final (long string literals it cannot
+    # split), which is a permanent floor, not a signal.
+    "E501",
+]
+
+# Deliberately NOT selected: PLR/PLC (magic numbers, argument counts -- a
+# project-wide policy choice, not a cleanup), ERA (prose in comments that reads
+# as code), and ANN/D/S (annotations, docstring style, bandit -- same reason).
+
+[tool.ruff.lint.per-file-ignores]
+# The synthetic-MS factory and the tests around it read better with numpy's
+# `np` alias than with the `numpy` the library uses.
+"tests/**" = ["ICN001"]
+
+[tool.ruff.format]
+docstring-code-format = true

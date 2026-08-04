@@ -16,3 +16,15 @@ __pycache__/
 # Virtual environments
 .venv/
 venv/
+
+# Documentation build
+docs/_build/
+
+# Agents
+.claude/
+.opencode/
+
+# Measurement Sets and their sidecars, in case one is generated in-tree
+*.ms/
+*.ms.flagversions/
+*.zarr/

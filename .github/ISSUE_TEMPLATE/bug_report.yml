@@ -1,0 +1,91 @@
+name: Bug report
+description: Something msutils did wrong on a real Measurement Set
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Most bugs here are really "this MS is shaped in a way the code did not
+        expect", so the shape of your MS is usually more useful than the
+        traceback. `msutils info` prints most of what we need in one go.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you ran, what you expected, and what you got instead.
+      placeholder: |
+        $ msutils info /data/obs.ms
+        ...
+        Expected the bandpass calibrator to show 20 scans; it shows 1.
+    validations:
+      required: true
+
+  - type: textarea
+    id: msinfo
+    attributes:
+      label: Output of `msutils info`
+      description: >
+        Run `msutils info <ms>` and paste the output. If the bug is that
+        `info` itself fails, paste the traceback instead and tell us the
+        telescope. Redact paths and project codes if you need to.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: ms-shape
+    attributes:
+      label: Measurement Set shape
+      description: >
+        Only if `msutils info` could not run. Telescope, and roughly how many
+        fields / spectral windows / scans / antennas. Also whether the FEED,
+        STATE and SOURCE subtables are populated — several readers behave
+        differently when they are empty, and casacore will not tell you.
+      placeholder: |
+        MeerKAT, 3 fields, 1 SPW (4096 chan), ~300 scans, 61 antennas.
+        FEED populated, STATE populated, SOURCE empty.
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: msutils version
+      description: "`msutils --version`, or `pip show msutils`."
+      placeholder: "3.0.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: Which extras are installed?
+      multiple: true
+      options:
+        - none (base install)
+        - plots
+        - average
+        - msv4
+        - xarray-ms
+        - convert
+        - all
+    validations:
+      required: false
+
+  - type: input
+    id: environment
+    attributes:
+      label: Python and OS
+      placeholder: "Python 3.12 on Ubuntu 24.04"
+    validations:
+      required: true
+
+  - type: textarea
+    id: traceback
+    attributes:
+      label: Traceback
+      description: The full traceback, if there was one.
+      render: python
+    validations:
+      required: false

@@ -1,0 +1,91 @@
+# Lint, format, test and build the docs.
+#
+# The test suite builds its own Measurement Sets with python-casacore (see
+# tests/msfactory.py), so nothing here needs a simulator and nothing skips for
+# want of test data.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+jobs:
+  test:
+    name: "test (python ${{ matrix.python-version }})"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - name: Check out msutils
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # --locked everywhere: install the versions committed in uv.lock and fail
+      # if the lock does not match pyproject.toml. Without it a green run only
+      # means the tree passed against whatever PyPI published that morning, and
+      # a red one tomorrow cannot tell you whether this repo or a dependency
+      # moved.
+      - name: Install dependencies
+        run: uv sync --locked --all-extras --group dev
+
+      - name: Run tests
+        run: uv run --locked --all-extras --group dev pytest -q
+
+      - name: Lint
+        run: uv run --locked --group dev ruff check .
+
+      # Formatting is checked here as well as by .githooks/pre-commit, which
+      # already runs both. The hook is opt-in per clone (`git config
+      # core.hooksPath .githooks`) and `--no-verify` bypasses it, so without
+      # this an unformatted file reaches main and the next contributor's
+      # `ruff format` rewrites lines they did not touch.
+      - name: Format
+        run: uv run --locked --group dev ruff format --check .
+
+  bare-install:
+    # The base install is numpy + python-casacore + click, and it is supposed to
+    # cover msinfo, the column operations, subset, flag versions, flagstats and
+    # the diagnostics on its own. Running the suite with no extras is what turns
+    # that from a claim into a fact -- the optional-stack tests skip, everything
+    # else must pass.
+    name: "bare install (no extras)"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out msutils
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install without extras
+        run: uv sync --locked --group dev
+
+      - name: Run tests
+        run: uv run --locked --group dev pytest -q -rs
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out msutils
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --locked --group docs
+
+      - name: Build the documentation
+        run: uv run --locked --group docs sphinx-build -b html -W docs docs/_build/html

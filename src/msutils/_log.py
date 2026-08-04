@@ -1,4 +1,5 @@
 """Shared logging helper for the msutils package."""
+
 import logging
 
 

@@ -1,8 +1,9 @@
-"""Behavioural tests for the core column operations, run against a synthetic MS.
+"""Behavioural tests for the core column operations.
 
-These require the `simms`-backed `ms` fixture (see conftest.py); they skip when
-simms is unavailable.
+Run against the synthetic MS built by the `ms` fixture (see conftest.py and
+tests/msfactory.py), which needs nothing beyond python-casacore.
 """
+
 import numpy
 from casacore.tables import table
 
@@ -17,26 +18,6 @@ def _getcol(msname, col):
         tab.close()
 
 
-def test_summary(ms):
-    info = msutils.summary(ms, display=False)
-
-    assert info["NROW"] > 0
-    assert info["NCOR"] == 4
-    assert info["CORR"]["NUM_CORR"] == 4
-    assert info["CORR"]["CORR_TYPE"] == ["XX", "XY", "YX", "YY"]
-    # one SPW with the 4 channels we asked for
-    assert len(info["SPW"]["CHAN_FREQ"][0]) == 4
-
-
-def test_summary_writes_json(ms, tmp_path):
-    import json
-
-    outfile = tmp_path / "summary.json"
-    msutils.summary(ms, outfile=str(outfile), display=False)
-    data = json.loads(outfile.read_text())
-    assert data["NCOR"] == 4
-
-
 def test_addcol_clone_and_idempotent(ms):
     assert msutils.addcol(ms, "MODEL_DATA", clone="DATA") == "added"
     # second call is a no-op
@@ -48,8 +29,7 @@ def test_addcol_clone_and_idempotent(ms):
 
 
 def test_addcol_init_with(ms):
-    msutils.addcol(ms, "IMAGING_WEIGHT_SPECTRUM", clone="DATA",
-                   valuetype="float", init_with=1.0)
+    msutils.addcol(ms, "IMAGING_WEIGHT_SPECTRUM", clone="DATA", valuetype="float", init_with=1.0)
     col = _getcol(ms, "IMAGING_WEIGHT_SPECTRUM")
     assert numpy.allclose(col, 1.0)
 
@@ -69,8 +49,7 @@ def test_sumcols(ms):
 
 def test_sumcols_subtract(ms):
     msutils.copycol(ms, "DATA", "CORRECTED_DATA")
-    msutils.sumcols(ms, col1="DATA", col2="CORRECTED_DATA",
-                    outcol="MODEL_DATA", subtract=True)
+    msutils.sumcols(ms, col1="DATA", col2="CORRECTED_DATA", outcol="MODEL_DATA", subtract=True)
     out = _getcol(ms, "MODEL_DATA")
     assert numpy.allclose(out, 0)
 

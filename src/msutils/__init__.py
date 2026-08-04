@@ -1,43 +1,74 @@
-"""msutils: CASA Measurement Set manipulation utilities.
+"""msutils: Measurement Set manipulation utilities.
 
-The core column operations are exposed directly on the package, e.g.::
+Everyday MS operations, exposed directly on the package::
 
     import msutils
-    msutils.summary(msname)
-    msutils.addcol(msname, "MODEL_DATA")
 
-Feature-specific modules (``flagstats``, ``weights``) require optional
-extras -- ``pip install msutils[flagstats]`` / ``msutils[plots]``.
+    info = msutils.msinfo("obs.ms")  # structured metadata
+    print(info.render())
+
+    msutils.addcol("obs.ms", "MODEL_DATA", clone="DATA")
+    msutils.copycol("obs.ms", "DATA", "CORRECTED_DATA")
+
+Feature-specific modules require optional extras -- ``msutils[flagstats]``,
+``msutils[plots]``, ``msutils[average]``, ``msutils[msv4]``.
 """
+
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _version
+
 from ._ms import (
     STOKES_TYPES,
-    summary,
     addcol,
-    sumcols,
-    copycol,
-    compute_vis_noise,
-    verify_antpos,
     addnoise,
+    compute_vis_noise,
+    copycol,
+    delcol,
+    renamecol,
+    sumcols,
+    summary,
+    verify_antpos,
 )
+from .diagnostics import check, du, taql
+from .flags import flag_backup, flag_delete, flag_restore, flag_versions
+from .flagstats import flagstats
+from .info import MSInfo, detect_format, msinfo
+from .subset import average, subset
+
+try:
+    __version__ = _version("msutils")
+except PackageNotFoundError:  # running from a source tree, not installed
+    __version__ = "0.0.0.dev0"
 
 __all__ = [
     "STOKES_TYPES",
-    "summary",
+    "MSInfo",
+    "__version__",
+    # columns
     "addcol",
-    "sumcols",
-    "copycol",
-    "compute_vis_noise",
-    "verify_antpos",
     "addnoise",
+    "average",
+    "check",
+    "compute_vis_noise",
+    "copycol",
+    "delcol",
+    "detect_format",
+    # diagnostics
+    "du",
+    "flag_backup",
+    "flag_delete",
+    "flag_restore",
+    "flag_versions",
+    # flags
+    "flagstats",
+    # metadata
+    "msinfo",
+    "renamecol",
+    # datasets
+    "subset",
+    "sumcols",
+    # deprecated
+    "summary",
+    "taql",
+    "verify_antpos",
 ]
-
-
-def __getattr__(name):
-    # Lazily expose the deprecated `msutils.msutils` alias (emits a warning on
-    # import) without pulling it in on every package import. Import via
-    # importlib rather than `from . import msutils` to avoid recursing back
-    # through this __getattr__.
-    if name == "msutils":
-        import importlib
-        return importlib.import_module(__name__ + ".msutils")
-    raise AttributeError("module {0!r} has no attribute {1!r}".format(__name__, name))

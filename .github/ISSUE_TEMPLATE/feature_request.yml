@@ -1,0 +1,56 @@
+name: Feature request
+description: Suggest an operation or an improvement
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        msutils does **everyday MS operations**: inspect, subset, average,
+        manage columns and flags. It does not calibrate, image, or otherwise
+        process visibilities — see
+        [CONTRIBUTING.md](https://github.com/shinobi-dosho/msutils/blob/main/CONTRIBUTING.md#scope-and-philosophy).
+        A request that would make msutils a processing package is likely to be
+        declined however useful it is, so it is worth saying up front why it
+        belongs here rather than in CASA, QuartiCal or WSClean.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: >
+        The task, not the solution. What are you doing today instead, and what
+        does it cost you?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like msutils to do?
+      description: A sketch of the API or the command line is ideal.
+      placeholder: |
+        msutils.concat("a.ms", "b.ms", out="joined.ms")
+        $ msutils concat a.ms b.ms --out joined.ms
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Anything that already does this?
+      description: >
+        If another tool does it, say which — the answer may be "use that", and
+        knowing why it does not suit you is the useful part.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: dependencies
+    attributes:
+      label: Dependencies
+      options:
+        - label: >
+            This would need a new dependency (if so, say which — the base
+            install is deliberately numpy + python-casacore + click, and
+            anything heavier has to earn an extra).
+          required: false
