@@ -13,6 +13,8 @@ Everyday MS operations, exposed directly on the package::
 Feature-specific modules require optional extras -- ``msutils[flagstats]``,
 ``msutils[plots]``, ``msutils[average]``, ``msutils[msv4]``.
 """
+from importlib.metadata import PackageNotFoundError, version as _version
+
 from ._ms import (
     STOKES_TYPES,
     addcol,
@@ -31,7 +33,13 @@ from .flagstats import flagstats
 from .info import MSInfo, detect_format, msinfo
 from .subset import average, subset
 
+try:
+    __version__ = _version("msutils")
+except PackageNotFoundError:      # running from a source tree, not installed
+    __version__ = "0.0.0.dev0"
+
 __all__ = [
+    "__version__",
     # metadata
     "msinfo",
     "MSInfo",

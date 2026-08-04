@@ -1,0 +1,6 @@
+# Documentation build dependencies for Read the Docs.
+# Keep in sync with the `docs` dependency group in pyproject.toml.
+sphinx>=7.2
+furo>=2024.1
+sphinx-copybutton>=0.5
+myst-parser>=2.0

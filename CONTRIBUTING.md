@@ -29,7 +29,8 @@ extend the existing aggregate rather than adding a pass.
 diagnostics. Anything heavier is an extra, imported inside the function that
 needs it, and `tests/test_import.py` enforces that in a subprocess.
 
-See **[`AGENTS.md`](AGENTS.md)** for the full set of conventions — read it
+See **[`AGENTS.md`](https://github.com/SpheMakh/msutils/blob/main/AGENTS.md)**
+for the full set of conventions — read it
 before changing the readers, the `MSInfo` model, or anything that touches
 casacore tables.
 
