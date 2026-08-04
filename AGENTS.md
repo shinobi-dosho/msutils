@@ -1,6 +1,10 @@
-# CLAUDE.md
+# msutils -- design conventions
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for coding agents (and humans) working in this repository. Read this
+before changing the readers, the `MSInfo` model, or anything that touches
+casacore tables. [`CONTRIBUTING.md`](CONTRIBUTING.md) covers setup, testing and
+the contribution workflow; this file states the conventions the code holds to
+and why.
 
 ## What this is
 
