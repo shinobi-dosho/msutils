@@ -1,45 +1,25 @@
 """Shared pytest fixtures.
 
-Behavioural tests need a real Measurement Set. We generate a tiny one with
-`simms` (7-antenna kat-7 layout, a few times/channels). `simms` is a heavy,
-optional test dependency (install it from git, see the `test` dependency group
-in pyproject.toml); when it is not importable the MS-backed tests skip rather
-than fail.
+Behavioural tests run against synthetic Measurement Sets built by
+``tests/msfactory.py`` using python-casacore alone -- no ``simms``, no other
+heavy simulation stack, and therefore no skipping. Anything that can
+``import msutils`` can run the whole suite.
 """
 import shutil
 
 import pytest
 
-
-def _make_ms(path):
-    """Create a small MS at ``path`` using simms, or skip if simms is missing."""
-    try:
-        from simms.telescope.generate_ms import create_ms
-    except ImportError as exc:  # simms (or a dep) not installed
-        pytest.skip("simms not installed: {0}".format(exc))
-
-    create_ms(
-        ms=str(path),
-        telescope_name="kat-7",           # 7 antennas -> small MS
-        pointing_direction=["J2000", "0h0m0s", "-30d0m0s"],
-        dtime=10,                          # seconds per integration
-        ntimes=3,
-        start_freq="1.4GHz",
-        dfreq="10MHz",
-        nchan=4,
-        correlations=["XX", "XY", "YX", "YY"],
-        row_chunks=10000,
-        sefd=400.0,
-        column="DATA",
-    )
-    return str(path)
+from msfactory import make_ms
 
 
 @pytest.fixture(scope="session")
 def base_ms(tmp_path_factory):
-    """Build the synthetic MS once per test session."""
-    path = tmp_path_factory.mktemp("base") / "synthetic.ms"
-    return _make_ms(path)
+    """A synthetic MS built once per session.
+
+    3 fields x 2 scans x 3 times x 2 SPWs x 6 baselines = 216 rows, with
+    distinct observing intents per field and every third row flagged.
+    """
+    return make_ms(tmp_path_factory.mktemp("base") / "synthetic.ms")
 
 
 @pytest.fixture
@@ -48,3 +28,39 @@ def ms(base_ms, tmp_path):
     dest = str(tmp_path / "test.ms")
     shutil.copytree(base_ms, dest)
     return dest
+
+
+@pytest.fixture(scope="session")
+def patterned_ms(tmp_path_factory):
+    """An MS whose flags differ per correlation, per channel and per antenna.
+
+    The synthetic MS flags whole rows, which makes every axis report the same
+    percentage -- so it cannot tell a correct per-correlation breakdown from
+    the old broken one that copied the total into every slot. This fixture
+    lays down a pattern where each axis has a different, known answer:
+
+    * correlation 1 (XY): fully flagged
+    * channel 3: fully flagged
+    * every baseline involving antenna 0: fully flagged
+    * nothing else
+    """
+    import numpy as np
+    from casacore.tables import table
+
+    path = make_ms(tmp_path_factory.mktemp("patterned") / "patterned.ms",
+                   nspw=1, flag_every=None)
+    with table(path, readonly=False, ack=False) as tab:
+        flag = np.zeros_like(tab.getcol("FLAG"))
+        flag[:, :, 1] = True                       # correlation XY
+        flag[:, 3, :] = True                       # channel 3
+        a1, a2 = tab.getcol("ANTENNA1"), tab.getcol("ANTENNA2")
+        flag[(a1 == 0) | (a2 == 0)] = True         # antenna 0
+        tab.putcol("FLAG", flag)
+    return path
+
+
+@pytest.fixture(scope="session")
+def single_spw_ms(tmp_path_factory):
+    """A minimal one-field, one-SPW, unflagged MS for edge-case checks."""
+    return make_ms(tmp_path_factory.mktemp("single") / "single.ms",
+                   nspw=1, nfield=1, nscan_per_field=1, flag_every=None)

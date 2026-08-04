@@ -56,7 +56,6 @@ dev = [
 # MS-backed tests skip when it is not importable.
 test = [
     "pytest>=8.0",
-    "simms @ git+https://github.com/wits-cfa/simms.git",
 ]
 
 [project.urls]
@@ -79,9 +78,9 @@ include = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+# `tests` is on the path so test modules can import the msfactory helper.
+pythonpath = ["src", "tests"]
 addopts = "--import-mode=importlib"
-consider_namespace_packages = true
 
 [tool.ruff]
 line-length = 180
