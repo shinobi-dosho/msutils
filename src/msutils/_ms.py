@@ -1,24 +1,25 @@
 """Core Measurement Set column operations (numpy + python-casacore only)."""
 from __future__ import annotations
 
-import codecs
-import json
 import math
 import traceback
 from contextlib import closing
-from typing import Any, Optional, Sequence, Union
+from typing import Any, List, Optional, Sequence, Union
 
 import numpy
-import casacore.measures
-from casacore.tables import table, maketabdesc, makearrcoldesc
+from casacore.tables import maketabdesc, makearrcoldesc, makescacoldesc
 
+from ._compat import summary
 from ._log import create_logger
 from ._tables import open_table
+from .info._model import STOKES_TYPES
 
 __all__ = [
     "STOKES_TYPES",
     "summary",
     "addcol",
+    "delcol",
+    "renamecol",
     "sumcols",
     "copycol",
     "compute_vis_noise",
@@ -28,120 +29,16 @@ __all__ = [
 
 LOGGER = create_logger(__name__)
 
-dm = casacore.measures.measures()
 
-STOKES_TYPES = {
-    0  : "Undefined",
-    1  : "I",
-    2  : "Q",
-    3  : "U",
-    4  : "V",
-    5  : "RR",
-    6  : "RL",
-    7  : "LR",
-    8  : "LL",
-    9  : "XX",
-    10 : "XY",
-    11 : "YX",
-    12 : "YY",
-    13 : "RX",
-    14 : "RY",
-    15 : "LX",
-    16 : "LY",
-    17 : "XR",
-    18 : "XL",
-    19 : "YR",
-    20 : "YL",
-    21 : "PP",
-    22 : "PQ",
-    23 : "QP",
-    24 : "QQ",
-    25 : "RCircular",
-    26 : "LCircular",
-    27 : "Linear",
-    28 : "Ptotal",
-    29 : "Plinear",
-    30 : "PFtotal",
-    31 : "PFlinear",
-    32 : "Pangle",
-}
+def _measures():
+    """casacore.measures handle, created on first use.
 
-
-def summary(msname: str, outfile: Optional[str] = None, display: bool = True) -> dict:
-    """Collect a JSON-serializable summary of an MS (fields, SPWs, antennas, scans)."""
-
-    with open_table(msname) as tab:
-        info = {
-            "FIELD"     :   {},
-            "SPW"       :   {},
-            "ANT"       :   {},
-            "MAXBL"     :   {},
-            "SCAN"      :   {},
-            "EXPOSURE"  :   {},
-            "NROW"      :   tab.nrows(),
-            "CORR"      :   {},
-        }
-
-        with open_table(msname+'::STATE') as state_tab:
-            info['FIELD']['INTENTS'] = state_tab.getcol('OBS_MODE')
-
-        fields = numpy.unique(tab.getcol("FIELD_ID"))
-        info["FIELD"]["FIELD_ID"] = list(map(int, fields))
-        nfields = len(fields)
-
-        info['EXPOSURE'] = tab.getcell("EXPOSURE", 0)
-
-        info['FIELD']['STATE_ID'] = [None]*nfields
-        info['FIELD']['PERIOD'] = [None]*nfields
-        for i, fid in enumerate(fields):
-            with closing(tab.query('FIELD_ID=={0:d}'.format(fid))) as ftab:
-                state_id = ftab.getcol('STATE_ID')[0]
-                info['FIELD']['STATE_ID'][i] = int(state_id)
-                scans = {}
-                total_length = 0
-                for scan in set(ftab.getcol('SCAN_NUMBER')):
-                    with closing(ftab.query('SCAN_NUMBER=={0:d}'.format(scan))) as stab:
-                        length = (stab.getcol('TIME').max() - stab.getcol('TIME').min())
-                    scans[str(scan)] = length
-                    total_length += length
-
-            info['SCAN'][str(fid)] = scans
-            info['FIELD']['PERIOD'][i] = total_length
-
-        with open_table(msname+'::FIELD') as field_tab, \
-                open_table(msname+'::SPECTRAL_WINDOW') as spw_tab, \
-                open_table(msname+'::ANTENNA') as ant_tab:
-            tabs = {'FIELD': field_tab, 'SPW': spw_tab, 'ANT': ant_tab}
-            for key, _tab in tabs.items():
-                if key == 'SPW':
-                    colnames = 'CHAN_FREQ MEAS_FREQ_REF REF_FREQUENCY TOTAL_BANDWIDTH NAME NUM_CHAN IF_CONV_CHAIN NET_SIDEBAND FREQ_GROUP_NAME'.split()
-                else:
-                    colnames = _tab.colnames()
-                for name in colnames:
-                    try:
-                        info[key][name] = _tab.getcol(name).tolist()
-                    except AttributeError:
-                        info[key][name] = _tab.getcol(name)
-
-        # add correlation information
-        with open_table(msname+'::POLARIZATION') as tabcorr:
-            corr_type = tabcorr.getcol("CORR_TYPE")[0]
-            info["CORR"]["NUM_CORR"] = int(tabcorr.getcol("NUM_CORR")[0])
-            info["NCOR"] = int(info["CORR"]["NUM_CORR"])
-            info["CORR"]["CORR_TYPE"] = [STOKES_TYPES[ct] for ct in corr_type]
-
-        # get maximum baseline
-        uv = tab.getcol("UVW")[:,:2]
-        info['MAXBL'] = numpy.sqrt((uv**2).sum(1)).max()
-
-    if display:
-        LOGGER.info(info)
-
-    if outfile:
-        with codecs.open(outfile, 'w', 'utf8') as stdw:
-            stdw.write(json.dumps(info, ensure_ascii=False))
-
-    return info
+    Importing ``casacore.measures`` costs ~140 ms and needs the measures data
+    tables, but only :func:`verify_antpos` uses it -- so it stays out of the
+    package import path.
+    """
+    import casacore.measures
+    return casacore.measures.measures()
 
 
 def addcol(msname: str, colname: Optional[str] = None, shape: Optional[Sequence[int]] = None,
@@ -153,14 +50,33 @@ def addcol(msname: str, colname: Optional[str] = None, shape: Optional[Sequence[
            clone: Optional[str] = 'DATA',
            rowchunk: Optional[int] = None,
            **kw) -> str:
-    """ Add column to MS
-        msanme : MS to add colmn to
-        colname : column name
-        shape : shape
-        valuetype : data type
-        data_desc_type : 'scalar' for scalar elements and array for 'array' elements
-        init_with : value to initialise the column with
+    """Add a column to an MS.
+
+    Args:
+        msname: MS to add the column to.
+        colname: Name of the new column.
+        shape: Cell shape for an array column, e.g. ``[nchan, ncorr]``.
+        data_desc_type: ``'array'`` (default) or ``'scalar'`` -- whether each
+            cell holds an array or a single value.
+        valuetype: casacore value type, e.g. ``'complex'``, ``'float'``,
+            ``'int'``, ``'bool'``. Defaults to ``'complex'``.
+        init_with: Value to initialise every cell with. ``None`` leaves the
+            column unfilled.
+        coldesc: A ready-made column description, overriding everything else.
+        coldmi: Optional data manager info passed to ``addcols``.
+        clone: Existing column whose shape and type the new column should
+            match. This is the usual way to create a visibility column.
+        rowchunk: Rows per write when initialising.
+
+    Returns:
+        ``'added'``, or ``'exists'`` if the column was already there.
     """
+    if not colname:
+        raise ValueError("colname is required")
+    if data_desc_type not in ("array", "scalar"):
+        raise ValueError("data_desc_type must be 'array' or 'scalar', got "
+                         "{0!r}".format(data_desc_type))
+
     with open_table(msname, readonly=False) as tab:
         if colname in tab.colnames():
             LOGGER.info('Column already exists')
@@ -169,32 +85,39 @@ def addcol(msname: str, colname: Optional[str] = None, shape: Optional[Sequence[
         LOGGER.info('Attempting to add %s column to %s', colname, msname)
 
         valuetype = valuetype or 'complex'
+        fill = init_with if init_with is not None else _zero_of(valuetype)
 
         if coldesc:
             data_desc = coldesc
-            shape = coldesc['shape']
+            shape = coldesc.get('shape')
         elif shape:
-            data_desc = maketabdesc(makearrcoldesc(colname,
-                        init_with,
-                        shape=shape,
-                        valuetype=valuetype))
-        elif valuetype == 'scalar':
-            data_desc = maketabdesc(makearrcoldesc(colname,
-                        init_with,
-                        valuetype=valuetype))
+            data_desc = maketabdesc(makearrcoldesc(
+                colname, fill, shape=list(shape), valuetype=valuetype))
+        elif data_desc_type == 'scalar':
+            shape = []
+            data_desc = maketabdesc(makescacoldesc(colname, fill,
+                                                   valuetype=valuetype))
         elif clone:
+            if clone not in tab.colnames():
+                raise ValueError(
+                    "cannot clone {0!r}: no such column in {1}".format(clone, msname))
             element = tab.getcell(clone, 0)
-            try:
-                shape = element.shape
-                data_desc = maketabdesc(makearrcoldesc(colname,
-                            element.flatten()[0],
-                            shape=shape,
-                            valuetype=valuetype))
-            except AttributeError:
+            if numpy.ndim(element):            # array column
+                shape = list(numpy.shape(element))
+                data_desc = maketabdesc(makearrcoldesc(
+                    colname, numpy.asarray(element).flatten()[0],
+                    shape=shape, valuetype=valuetype))
+            else:                              # scalar column
                 shape = []
-                data_desc = maketabdesc(makearrcoldesc(colname,
-                            element,
-                            valuetype=valuetype))
+                data_desc = maketabdesc(makescacoldesc(colname, element,
+                                                       valuetype=valuetype))
+        else:
+            # Previously fell through with `data_desc` unbound, raising an
+            # opaque UnboundLocalError.
+            raise ValueError(
+                "not enough information to create column {0!r}: pass one of "
+                "`shape`, `coldesc`, `clone`, or data_desc_type='scalar'"
+                .format(colname))
 
         colinfo = [data_desc, coldmi] if coldmi else [data_desc]
         tab.addcols(*colinfo)
@@ -204,21 +127,113 @@ def addcol(msname: str, colname: Optional[str] = None, shape: Optional[Sequence[
         if init_with is None:
             return 'added'
 
-        spwids = set(tab.getcol('DATA_DESC_ID'))
+        spwids = sorted(set(tab.getcol('DATA_DESC_ID')))
         for spw in spwids:
-            LOGGER.info('Initialising {0:s} column with {1}. DDID is {2:d}'.format(colname, init_with, spw))
+            LOGGER.info('Initialising %s column with %s. DDID is %d',
+                        colname, init_with, spw)
             with closing(tab.query('DATA_DESC_ID=={0:d}'.format(spw))) as tab_spw:
                 nrows = tab_spw.nrows()
-
-                rowchunk = rowchunk or max(nrows//10, 1)
-                dshape = [0] + [a for a in shape]
-                for row0 in range(0, nrows, rowchunk):
-                    nr = min(rowchunk, nrows-row0)
+                chunk = rowchunk or max(nrows // 10, 1)
+                dshape = [0] + list(shape or [])
+                for row0 in range(0, nrows, chunk):
+                    nr = min(chunk, nrows - row0)
                     dshape[0] = nr
-                    LOGGER.info("Writing to column  %s (rows %d to %d)", colname, row0, row0+nr-1)
-                    tab_spw.putcol(colname, numpy.ones(dshape, dtype=type(init_with))*init_with, row0, nr)
+                    LOGGER.info("Writing to column  %s (rows %d to %d)",
+                                colname, row0, row0 + nr - 1)
+                    tab_spw.putcol(colname,
+                                   numpy.full(dshape, init_with,
+                                              dtype=numpy.asarray(init_with).dtype),
+                                   row0, nr)
 
     return 'added'
+
+
+#: Zero value of the right Python type for each casacore value type, used as
+#: the placeholder element when building a column description.
+_ZERO_VALUES = {
+    'complex': 0 + 0j, 'dcomplex': 0 + 0j,
+    'float': 0.0, 'double': 0.0,
+    'int': 0, 'uint': 0, 'short': 0, 'ushort': 0, 'int64': 0,
+    'bool': False, 'boolean': False,
+    'string': '',
+}
+
+
+def _zero_of(valuetype: str) -> Any:
+    """A zero of ``valuetype``, for column descriptions with no init value."""
+    return _ZERO_VALUES.get(str(valuetype).lower(), 0.0)
+
+
+def _required_columns() -> frozenset:
+    """Main-table columns the MSv2 standard requires."""
+    from casacore.tables import required_ms_desc
+    return frozenset(k for k in required_ms_desc() if not k.startswith("_"))
+
+
+def delcol(msname: str, *colnames: str, force: bool = False) -> List[str]:
+    """Remove columns from an MS.
+
+    Reclaiming the space taken by ``CORRECTED_DATA``/``MODEL_DATA`` after
+    calibration is one of the most common MS chores, and casacore's
+    ``removecols`` is the only way to do it without rewriting the MS.
+
+    Args:
+        msname: MS to modify.
+        colnames: Columns to remove. Missing ones are skipped with a warning.
+        force: Allow removing columns the MSv2 standard requires. Off by
+            default, since doing so produces an MS that other tools reject.
+
+    Returns:
+        The names actually removed.
+    """
+    if not colnames:
+        raise ValueError("no columns given")
+
+    with open_table(msname, readonly=False) as tab:
+        present = set(tab.colnames())
+        required = _required_columns()
+
+        removable = []
+        for name in colnames:
+            if name not in present:
+                LOGGER.warning("Column %s is not in %s; skipping", name, msname)
+                continue
+            if name in required and not force:
+                raise ValueError(
+                    "{0} is required by the MSv2 standard; removing it will "
+                    "make {1} unreadable to other tools. Pass force=True if "
+                    "you really mean it.".format(name, msname))
+            removable.append(name)
+
+        if not removable:
+            return []
+
+        LOGGER.info("Removing column(s) %s from %s", ", ".join(removable), msname)
+        tab.removecols(removable)
+
+    return removable
+
+
+def renamecol(msname: str, fromcol: str, tocol: str) -> None:
+    """Rename a column in place, without copying its data.
+
+    Args:
+        msname: MS to modify.
+        fromcol: Existing column name.
+        tocol: New name; must not already exist.
+    """
+    with open_table(msname, readonly=False) as tab:
+        colnames = tab.colnames()
+        if fromcol not in colnames:
+            raise ValueError("{0} has no column {1!r}".format(msname, fromcol))
+        if tocol in colnames:
+            raise ValueError("{0} already has a column {1!r}".format(msname, tocol))
+        if fromcol in _required_columns():
+            raise ValueError(
+                "{0} is required by the MSv2 standard and cannot be renamed"
+                .format(fromcol))
+        LOGGER.info("Renaming %s to %s in %s", fromcol, tocol, msname)
+        tab.renamecol(fromcol, tocol)
 
 
 def sumcols(msname: str, col1: Optional[str] = None, col2: Optional[str] = None,
@@ -300,7 +315,7 @@ def verify_antpos(msname: str, fix: bool = False, hemisphere: Optional[int] = No
             obs = obstab.getcol("TELESCOPE_NAME")[0]
         LOGGER.info("observatory is %s", obs)
         try:
-            hemisphere = 1 if dm.observatory(obs)['m0']['value'] > 0 else -1
+            hemisphere = 1 if _measures().observatory(obs)['m0']['value'] > 0 else -1
         except Exception:
             traceback.print_exc()
             LOGGER.warning("%s is unknown, or casacore.measures is missing. Will not verify antenna positions.", obs)
@@ -330,32 +345,46 @@ def addnoise(msname: str, column: str = 'MODEL_DATA',
              rowchunk: Optional[int] = None,
              addToCol: Optional[str] = None,
              spw_id: Optional[int] = None) -> None:
-    """ Add Gaussian noise to MS, given a stdandard deviation (noise).
-        This noise can be also be calculated given SEFD value
-    """
+    """Add Gaussian noise to a visibility column.
 
+    Args:
+        msname: MS to write into.
+        column: Column receiving the noisy visibilities.
+        noise: Noise standard deviation. Either a scalar, or one value per
+            channel, in which case it is broadcast along the frequency axis.
+        sefd: SEFD in Jy, used to derive ``noise`` when ``noise`` is falsy.
+        rowchunk: Rows per write.
+        addToCol: Add the noise to this column's data instead of writing pure
+            noise.
+        spw_id: Spectral window used when deriving the noise from ``sefd``.
+    """
     with open_table(msname, readonly=False) as tab:
-        multi_chan_noise = False
-        if hasattr(noise, '__iter__'):
-            multi_chan_noise = True
-        elif hasattr(sefd, '__iter__'):
-            multi_chan_noise = True
+        multi_chan_noise = hasattr(noise, '__iter__') or hasattr(sefd, '__iter__')
+        if multi_chan_noise:
+            # Shape once, up front. Reshaping inside the row loop appended a
+            # fresh axis on every chunk, so any MS needing more than one chunk
+            # died with a broadcasting error on the second one.
+            noise = numpy.asarray(noise)[numpy.newaxis, :, numpy.newaxis]
         else:
             noise = noise or compute_vis_noise(msname, sefd=sefd, spw_id=spw_id or 0)
 
-        spws = set(tab.getcol('DATA_DESC_ID'))
+        spws = sorted(set(tab.getcol('DATA_DESC_ID')))
         for spw in spws:
             with closing(tab.query('DATA_DESC_ID=={0:d}'.format(spw))) as tab_spw:
                 nrows = tab_spw.nrows()
-                nchan, ncor = tab_spw.getcell('DATA', 0).shape
+                nchan, ncor = tab_spw.getcell(column, 0).shape
 
-                rowchunk = rowchunk or max(nrows//10, 1)
+                if multi_chan_noise and noise.shape[1] not in (1, nchan):
+                    raise ValueError(
+                        "noise has {0:d} channels but DATA_DESC_ID {1:d} has "
+                        "{2:d}".format(noise.shape[1], spw, nchan))
 
-                for row0 in range(0, nrows, rowchunk):
-                    nr = min(rowchunk, nrows-row0)
-                    data = numpy.random.randn(nr, nchan, ncor) + 1j*numpy.random.randn(nr, nchan, ncor)
-                    if multi_chan_noise:
-                        noise = noise[numpy.newaxis,:,numpy.newaxis]
+                chunk = rowchunk or max(nrows // 10, 1)
+
+                for row0 in range(0, nrows, chunk):
+                    nr = min(chunk, nrows - row0)
+                    data = (numpy.random.randn(nr, nchan, ncor)
+                            + 1j * numpy.random.randn(nr, nchan, ncor))
                     data *= noise
 
                     if addToCol:

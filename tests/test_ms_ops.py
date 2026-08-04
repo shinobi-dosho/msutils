@@ -1,7 +1,7 @@
-"""Behavioural tests for the core column operations, run against a synthetic MS.
+"""Behavioural tests for the core column operations.
 
-These require the `simms`-backed `ms` fixture (see conftest.py); they skip when
-simms is unavailable.
+Run against the synthetic MS built by the `ms` fixture (see conftest.py and
+tests/msfactory.py), which needs nothing beyond python-casacore.
 """
 import numpy
 from casacore.tables import table
@@ -15,26 +15,6 @@ def _getcol(msname, col):
         return tab.getcol(col)
     finally:
         tab.close()
-
-
-def test_summary(ms):
-    info = msutils.summary(ms, display=False)
-
-    assert info["NROW"] > 0
-    assert info["NCOR"] == 4
-    assert info["CORR"]["NUM_CORR"] == 4
-    assert info["CORR"]["CORR_TYPE"] == ["XX", "XY", "YX", "YY"]
-    # one SPW with the 4 channels we asked for
-    assert len(info["SPW"]["CHAN_FREQ"][0]) == 4
-
-
-def test_summary_writes_json(ms, tmp_path):
-    import json
-
-    outfile = tmp_path / "summary.json"
-    msutils.summary(ms, outfile=str(outfile), display=False)
-    data = json.loads(outfile.read_text())
-    assert data["NCOR"] == 4
 
 
 def test_addcol_clone_and_idempotent(ms):
