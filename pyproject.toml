@@ -55,8 +55,16 @@ xarray-ms = [
     "xarray-ms>=0.5",
 ]
 # msutils.convert: writing MSv2 -> MSv4 processing sets.
+#
+# `ipython` is not ours: xradio pulls in `toolviper`, whose
+# `toolviper/utils/display.py` imports IPython unconditionally while its own
+# metadata does not require it. Converting therefore dies with
+# `ModuleNotFoundError: No module named 'IPython'` on an otherwise complete
+# install. Declared here so `msutils[convert]` actually converts; drop it when
+# toolviper declares its own dependency.
 convert = [
     "xradio[casacore]>=1.2",
+    "ipython",
 ]
 all = [
     "msutils[plots,average,msv4,xarray-ms,convert]",
@@ -66,6 +74,14 @@ all = [
 dev = [
     "pytest>=8.0",
     "ruff>=0.5",
+]
+# Documentation build (Sphinx + Furo + autodoc). `uv sync --group docs`.
+# Keep in sync with docs/requirements.txt, which Read the Docs installs.
+docs = [
+    "sphinx>=7.2",
+    "furo>=2024.1",
+    "sphinx-copybutton>=0.5",
+    "myst-parser>=2.0",
 ]
 # The behavioural tests build their own Measurement Sets with python-casacore
 # (see tests/msfactory.py), so the suite needs no simulator. The optional
@@ -80,9 +96,11 @@ test = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/SpheMakh/msutils"
+Homepage = "https://msutils.readthedocs.io"
 Repository = "https://github.com/SpheMakh/msutils"
 Issues = "https://github.com/SpheMakh/msutils/issues"
+Documentation = "https://msutils.readthedocs.io"
+Changelog = "https://github.com/SpheMakh/msutils/blob/main/CHANGELOG.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/msutils"]
@@ -92,6 +110,10 @@ include = [
     "/src/msutils",
     "/README.md",
     "/LICENSE",
+    "/AGENTS.md",
+    "/CONTRIBUTING.md",
+    "/SECURITY.md",
+    "/CHANGELOG.md",
     "/pyproject.toml",
 ]
 
