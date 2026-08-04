@@ -11,6 +11,7 @@ license = "GPL-2.0-or-later"
 requires-python = ">=3.11"
 authors = [
     { name = "Sphesihle Makhathini", email = "sphemakh@gmail.com" },
+    { name = "Athanaseus Ramaila", email = "armaila@sarao.ac.za" },
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
