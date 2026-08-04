@@ -1,6 +1,9 @@
-# This workflow installs the package, lints with ruff and runs the pytest suite
-# For more information see: https://help.github.com/actions/language-and-framework-guides/using-python-with-github-actions
-
+# Installs the package, lints with ruff and runs the pytest suite.
+#
+# The suite builds its own Measurement Sets with python-casacore (see
+# tests/msfactory.py), so the core job needs no simulator and nothing skips
+# for want of test data. A second job installs the optional extras so the
+# averaging and MSv4 paths are exercised too.
 name: Python package
 
 on:
@@ -10,13 +13,13 @@ on:
     branches: [ main ]
 
 jobs:
-  build:
-
+  test:
+    name: "core (python ${{ matrix.python-version }})"
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.8', '3.9', '3.10', '3.11']
+        python-version: ['3.11', '3.12', '3.13']
 
     steps:
     - uses: actions/checkout@v4
@@ -24,20 +27,30 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
-    - name: Install dependencies
+    - name: Install
       run: |
         python -m pip install --upgrade pip
-        pip install ruff pytest matplotlib
+        pip install ruff pytest
         pip install .
     - name: Lint with ruff
+      run: ruff check .
+    - name: Test the base install
+      # No extras: proves the core (msinfo, columns, subset, flags,
+      # flagstats, diagnostics) really does run on numpy + casacore alone.
+      run: pytest -rs
+
+  test-extras:
+    name: "extras (plots, average, msv4)"
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - name: Install with all extras
       run: |
-        ruff check .
-    - name: Install simms (for MS-backed behavioural tests)
-      # Heavy git dependency; if it fails to install, the MS-backed tests skip
-      # rather than failing the build. Only supports newer Python.
-      continue-on-error: true
-      run: |
-        pip install "simms @ git+https://github.com/wits-cfa/simms.git"
-    - name: Run tests
-      run: |
-        pytest -rs
+        python -m pip install --upgrade pip
+        pip install pytest
+        pip install ".[all]"
+    - name: Test everything
+      run: pytest -rs

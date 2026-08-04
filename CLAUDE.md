@@ -4,52 +4,80 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`msutils` is a Python library of CASA Measurement Set (MS) manipulation tools used in radio-astronomy pipelines. The core column operations are exposed **directly on the package**: `import msutils; msutils.summary(msname)`, `msutils.addcol(...)`, etc. There is also a click **CLI** (`msutils` console script → `msutils.cli:cli`) with subcommands `summary`/`addcol`/`copycol`/`sumcols`/`addnoise`/`flagstats`.
+`msutils` is a Python library and CLI of **everyday Measurement Set operations** for radio-astronomy pipelines — inspect, subset, average, manage columns and flags. Explicitly *not* calibration or imaging. Public functions are exposed on the package root (`import msutils; msutils.msinfo(ms)`) and mirrored by a click CLI (`msutils` console script → `msutils.cli:cli`).
 
-**Two deprecated aliases** (both emit `FutureWarning`, kept for one release):
-- The old **capitalised `MSUtils` package** — `src/MSUtils/__init__.py` warns, then swaps `sys.modules["MSUtils"]` for the real `msutils` package.
-- The old **`msutils.msutils` submodule** — the functions used to live there; `src/msutils/msutils.py` now re-exports them from `_ms` and warns. `src/msutils/__init__.py` also has a `__getattr__` so lazy `msutils.msutils` attribute access triggers the (deprecated) import.
-
-Use the flat `msutils.<func>` form in all new code.
+The headline entry point is **`msinfo`**, which returns a typed `MSInfo`. The old `summary()` is a deprecated adapter over it (`FutureWarning`); do not build anything new on `summary`.
 
 ## Commands
 
 ```bash
-pip install .            # install (editable: pip install -e .); build backend is hatchling
-pip install pytest ruff  # dev tooling (or: pip install with the [dependency-groups] dev set)
+pip install -e ".[all]"   # everything; build backend is hatchling
+pip install pytest ruff
 
-pytest                   # run the test suite (config in pyproject.toml [tool.pytest.ini_options])
-pytest tests/test_import.py::test_flat_api          # run a single test
-
-ruff check .             # lint; gate mirrors the old flake8 hard-fail set (see pyproject [tool.ruff.lint])
+pytest                    # full suite; needs no simulator (see Testing below)
+pytest tests/test_msinfo.py::test_scan_duration_includes_final_integration
+ruff check .              # lint gate: syntax + undefined names only (E9, F63, F7, F82)
 ```
 
-The package uses a **`src/` layout**: the real package is `src/msutils/`, plus the `src/MSUtils/` alias shim; both are shipped (`[tool.hatch.build.targets.wheel] packages`). The distribution/PyPI name is `msutils`. Packaging is configured entirely in `pyproject.toml` (hatchling) — there is no `setup.py`/`setup.cfg`/`requirements.txt`/`MANIFEST.in`. Internal code imports the core as `from . import _ms` (never the deprecated `msutils.msutils` shim), and opens tables via `_tables.open_table` (a context manager that guarantees `.close()`).
-
-Tests: `tests/test_import.py` is import/API smoke checks (no deps). `tests/test_ms_ops.py` exercises the core column ops end-to-end against a **synthetic MS** built by the `ms` fixture (`conftest.py`), which uses `simms` (7-antenna kat-7, 3 times × 4 chans). `simms` is a heavy git-installed dependency in the `test` dependency group; when it's absent the MS-backed tests **skip** rather than fail (so a bare `pytest` still passes). CI installs `simms` as a non-fatal step. The ruff gate only enforces syntax + undefined-name rules (`E9`, `F63`, `F7`, `F82`).
-
-Releases publish to PyPI automatically on GitHub release creation (`.github/workflows/publish.yml`). Bump `version` in `pyproject.toml` for a release.
-
-## Critical dependency detail
-
-All modules now use the **modern `casacore` namespace** (`from casacore.tables import table`; `flagstats` additionally uses `daskms`). The legacy `pyrap` alias is gone. `python-casacore` is a regular `pyproject.toml` dependency (pip wheels bundle the casacore libs), so `pip install .` is self-contained.
-
-**Dependencies are split into extras** (`[project.optional-dependencies]`): the base install is only `numpy` + `python-casacore` (enough for the core `_ms` column ops). Heavier stacks are opt-in — `msutils[flagstats]` pulls `dask-ms`+`matplotlib` (for `flagstats`), `msutils[plots]` pulls `matplotlib`+`scipy` (for `weights`), and `msutils[all]` gets everything. So importing `flagstats`/`weights` without the matching extra fails by design. (The pre-2.x module names `flag_stats`/`ClassESW` remain as deprecated `FutureWarning` shims.)
+`src/` layout; the package is `src/msutils/`. Packaging is entirely in `pyproject.toml` — no `setup.py`/`requirements.txt`/`MANIFEST.in`. Releases publish to PyPI on GitHub release creation (`.github/workflows/publish.yml`); bump `version` in `pyproject.toml`.
 
 ## Architecture
 
-Modules under `src/msutils/`, unified by a shared table helper (`_tables.open_table`) and logger (`_log.create_logger`, one handler per named logger):
+```
+src/msutils/
+  info/            msinfo + the MSInfo model          <- the core abstraction
+    _model.py        dataclasses, Registry, formatting helpers
+    _msv2.py         casacore/TaQL reader (default)
+    _msv4.py         MSv4-schema reader (zarr / xradio / xarray-ms engines)
+    _render.py       listobs-style text report
+  _ms.py           column ops: addcol, delcol, renamecol, copycol, sumcols, addnoise
+  subset.py        subset() and average()
+  flags.py         flag version backup/restore
+  flagstats.py     TaQL flag statistics  (+ _flagrender.py, _flagplot.py)
+  diagnostics.py   du(), check(), taql()
+  convert.py       MSv2 -> MSv4 via xradio
+  _tables.py       open_table / query context managers
+  _compat.py       the deprecated summary()
+  cli.py           click CLI
+```
 
-- **`_ms.py`** — the core (base-install only, needs just numpy+casacore), re-exported at the package root. Type-hinted column-level MS operations: `summary` (dumps MS metadata to a JSON-serializable dict), `addcol`, `sumcols`, `copycol`, `addnoise`, `compute_vis_noise`, `verify_antpos`. Defines `STOKES_TYPES` (correlation-code → label map) reused by other modules and lists the public API in `__all__`. (The old `prep()` — which shelled out to `addbitflagcol`/`flag-ms.py` and used `distutils` — was removed.)
+### Non-negotiable patterns
 
-- **`flagstats.py`** (was `flag_stats.py`) — flag statistics computed **out-of-core with dask-ms + dask.array**, results plotted to a **matplotlib PNG** (2×2 bar-chart summary; `Agg` backend). The public entry points are `save_statistics` (→ JSON) and `plot_statistics` (→ PNG via `plotfile=`, + JSON via `outfile=`). Under the hood, per-axis functions (`antenna_flags_field`, `scan_flags_field`, `source_flags_field`, `correlation_flags_field`) use `xds_from_ms` grouped by a column, then `da.blockwise` + `da.reduction` with the module-level `_get_flags`/`_get_ant_flags`/`_chunk`/`_combine`/`_aggregate` helpers to accumulate `[flagged_sum, total_count]` pairs.
+- **Aggregate in TaQL, not in Python.** This is the single most important rule here. The 2.x `summary()` ran one `table.query()` per field and another per scan — O(fields × scans) full scans. `_msv2.py` does one `GROUPBY` pass and folds the result in Python. When adding metadata, extend the aggregate in `_msv2._AGGREGATES`; do not add another pass.
+- **TaQL re-reads a column per expression.** Each extra `UVW`/`FLAG` term in a `SELECT` costs another pass over bulk data (0.17 s → 0.64 s for one `SUMSQR(UVW)` on 595k rows). This is why bulk-column aggregates live at `level="data"` and index-column ones at `level="full"`.
+- **Bind tables as `$1`, never interpolate paths.** TaQL rejects bare paths containing `.` or `::`, so `FROM ./obs.ms` is a parse error. Use `_tables.query(cmd, [tab])`.
+- **Always close tables.** casacore holds locks; a leaked handle makes later operations block. Everything goes through `_tables.open_table` / `query` / `closing_table`, which close on exit. (A per-SPW handle leak in the since-removed `weights.write_toms` was a real 2.x bug.)
+- **`ack=False`.** `open_table` suppresses casacore's "Successful readonly open" banner so stdout stays clean for piped JSON.
+- **Chunked read/write by SPW.** Bulk column writes iterate `set(tab.getcol('DATA_DESC_ID'))`, then rows in `rowchunk` blocks via `getcol/putcol(col, row0, nr)`. MSs do not fit in memory.
+- **`addcol(clone='DATA')`** is the standard way to create a column matching an existing one; `sumcols` and `copycol` rely on it, and it is idempotent (returns `'exists'`).
+- **`DATA_DESC_ID` is not `SPECTRAL_WINDOW_ID`.** Always map through `DATA_DESCRIPTION`. Conflating them is a quiet source of wrong results, and `MSInfo.data_descriptions` exists to make the mapping explicit.
 
-- **`weights.py`** (was `ClassESW.py`) — `MSNoise` class: estimates per-channel visibility noise/weights from an SEFD-vs-frequency profile (fits a polynomial or spline), then writes `WEIGHT`/`WEIGHT_SPECTRUM` back to the MS. `MEERKAT_SEFD` is a built-in reference profile. Depends on `msutils.summary` and `msutils.addcol`.
+### The MSInfo model
 
-(`imp_plotter.py` — matplotlib gain/cal-table plotters — was removed in 2.x; gain-table plotting is superseded by `ragavi-gains`, and gain tables aren't MSs.)
+`info/_model.py` is the contract between readers and consumers. Conventions to preserve:
 
-### Recurring patterns to preserve
+- Collections are `Registry` objects, addressable by **id or name** (`info.fields["DEEP_2"]`), where integer keys are ids, *not* positions — subset MSs keep non-contiguous ids.
+- **Derived values are `@property`, listed in `_derived`**, never stored fields. `to_dict()` includes them. This keeps the JSON a faithful record of what was read and stops values drifting.
+- Times are **MJD seconds** everywhere in the model. MSv4 stores unix seconds; `_msv4._mjd_seconds` converts on the way in.
+- Bump `SCHEMA_VERSION` on any breaking JSON change.
 
-- **Chunked read/write by SPW.** Bulk column operations iterate over `set(tab.getcol('DATA_DESC_ID'))` (spectral windows), then loop rows in `rowchunk`-sized blocks via `getcol/putcol(col, row0, nr)`. Follow this when adding column-writing functions — MS files are too large to load whole.
-- **Always close tables.** casacore holds locks; every opened `table(...)` / subtable must be `.close()`d or subsequent operations hang (see the explicit note in `compute_vis_noise`).
-- **`addcol(clone='DATA')`** is the standard way to create a new column matching an existing column's shape/type; `sumcols`/`copycol`/`MSNoise.write_toms` all rely on it and it is idempotent (returns `'exists'` if the column is already there).
+### Readers and engines
+
+`msinfo(path, engine=...)` picks a reader. MSv2 defaults to `casacore` (TaQL). `_msv4.py` reads the MSv4 *schema* from three sources — `zarr` (plain xarray, no xradio), `xradio`, and `xarray-ms` (an MSv2 viewed through the MSv4 schema, no conversion) — all folding into the same `MSInfo`.
+
+**Keep casacore/TaQL the MSv2 default.** It is several times faster for metadata, needs nothing beyond the base install, and opens MSs that xarray-ms rejects (e.g. an empty `FEED`). A malformed MS is exactly the one a diagnostic tool must be able to open. xradio is needed only to *write* MSv4.
+
+## Dependencies
+
+Base install is `numpy` + `python-casacore` + `click`, and it covers `msinfo`, all column ops, `subset`, flags, `flagstats` and diagnostics. Extras: `plots` (matplotlib), `average` (codex-africanus), `msv4` (xarray, zarr — reading), `xarray-ms`, `convert` (xradio — writing). `tests/test_import.py` asserts in a subprocess that importing `msutils` pulls in none of them; keep optional imports inside functions.
+
+`python-casacore` is a regular dependency (pip wheels bundle casacore), so `pip install .` is self-contained. Python ≥ 3.11.
+
+## Testing
+
+`tests/msfactory.py` builds structurally realistic MSs with python-casacore alone — several fields with distinct intents, several scans, several SPWs, a real `DATA_DESCRIPTION` mapping and a populated `FEED`. This replaced `simms`, whose absence used to make the MS-backed tests silently skip, including in CI.
+
+- The synthetic MS is built to exercise the cases 2.x got wrong. When fixing a metadata bug, make sure the fixture can actually distinguish right from wrong — `patterned_ms` exists because the default fixture flags whole rows, which cannot tell a correct per-correlation breakdown from the broken one.
+- `tests/test_regressions.py` pins the six audited bugs; each test failed before its fix.
+- Tests for optional stacks `importorskip`. CI runs the suite twice: bare (proving the base install is self-sufficient) and with `[all]`.
+- Do not assert on the contents of a column created by `addcol` without `init_with` — it is genuinely uninitialised, and comparisons pass or fail by luck.

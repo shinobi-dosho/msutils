@@ -4,24 +4,28 @@ build-backend = "hatchling.build"
 
 [project]
 name = "msutils"
-version = "2.0.0b1"
-description = "Tools for playing with Measurement sets."
+version = "3.0.0"
+description = "Everyday Measurement Set operations for radio-astronomy pipelines."
 readme = "README.md"
 license = "GPL-2.0-or-later"
-requires-python = ">=3.8"
+requires-python = ">=3.11"
 authors = [
     { name = "Sphesihle Makhathini", email = "sphemakh@gmail.com" },
 ]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Operating System :: OS Independent",
     "Programming Language :: Python",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Scientific/Engineering :: Astronomy",
 ]
-# Base install covers the core column operations in msutils.msutils only.
-# Heavier, feature-specific stacks live in optional extras below.
+# The base install covers everything that runs on casacore + TaQL: msinfo,
+# the column operations, subsetting, flag versions, flag statistics and the
+# diagnostics. Only genuinely heavier stacks are optional, below.
 dependencies = [
     "numpy",
     "python-casacore",
@@ -32,18 +36,30 @@ dependencies = [
 msutils = "msutils.cli:cli"
 
 [project.optional-dependencies]
-# msutils.flagstats: out-of-core flag statistics + matplotlib summary plots
-flagstats = [
-    "dask-ms",
-    "matplotlib",
-]
-# msutils.weights: matplotlib/scipy noise-weight estimation + diagnostic plot
+# PNG summary plots for flagstats.
 plots = [
     "matplotlib",
-    "scipy",
+]
+# msutils.average: time/channel averaging via codex-africanus.
+average = [
+    "codex-africanus>=0.4",
+]
+# Reading MSv4 processing sets. Plain xarray+zarr is enough -- xradio is
+# only needed to *write* one (the `convert` extra below).
+msv4 = [
+    "xarray>=2025.0",
+    "zarr",
+]
+# Reading an MSv2 through the MSv4 schema, without converting it.
+xarray-ms = [
+    "xarray-ms>=0.5",
+]
+# msutils.convert: writing MSv2 -> MSv4 processing sets.
+convert = [
+    "xradio[casacore]>=1.2",
 ]
 all = [
-    "msutils[flagstats,plots]",
+    "msutils[plots,average,msv4,xarray-ms,convert]",
 ]
 
 [dependency-groups]
@@ -51,11 +67,16 @@ dev = [
     "pytest>=8.0",
     "ruff>=0.5",
 ]
-# `simms` generates the synthetic MS used by the behavioural tests. It is a
-# heavy, git-installed dependency (kept out of the published package metadata);
-# MS-backed tests skip when it is not importable.
+# The behavioural tests build their own Measurement Sets with python-casacore
+# (see tests/msfactory.py), so the suite needs no simulator. The optional
+# stacks are included so the averaging and MSv4 tests actually run rather
+# than skipping.
 test = [
     "pytest>=8.0",
+    "matplotlib",
+    "codex-africanus>=0.4",
+    "xradio[casacore]>=1.2",
+    "xarray-ms>=0.5",
 ]
 
 [project.urls]
@@ -64,13 +85,11 @@ Repository = "https://github.com/SpheMakh/msutils"
 Issues = "https://github.com/SpheMakh/msutils/issues"
 
 [tool.hatch.build.targets.wheel]
-# `MSUtils` is a deprecated alias shim that re-exports `msutils`.
-packages = ["src/msutils", "src/MSUtils"]
+packages = ["src/msutils"]
 
 [tool.hatch.build.targets.sdist]
 include = [
     "/src/msutils",
-    "/src/MSUtils",
     "/README.md",
     "/LICENSE",
     "/pyproject.toml",
