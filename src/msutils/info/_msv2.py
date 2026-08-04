@@ -16,14 +16,25 @@ from __future__ import annotations
 
 import math
 import os
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
-import numpy
+import numpy as np
 
-from .._log import create_logger
-from .._tables import open_table, query, subtable_names
-from ._model import (Antenna, Column, DataDescription, Field, MSInfo,
-                     Observation, Polarization, Registry, Scan, SpectralWindow)
+from msutils._log import create_logger
+from msutils._tables import open_table, query, subtable_names
+
+from ._model import (
+    Antenna,
+    Column,
+    DataDescription,
+    Field,
+    MSInfo,
+    Observation,
+    Polarization,
+    Registry,
+    Scan,
+    SpectralWindow,
+)
 
 LOGGER = create_logger(__name__)
 
@@ -71,7 +82,7 @@ def read(path: str, level: str = "full") -> MSInfo:
               coverage and flag statistics. Several times more expensive.
     """
     if level not in LEVELS:
-        raise ValueError("level must be one of {0}, got {1!r}".format(LEVELS, level))
+        raise ValueError(f"level must be one of {LEVELS}, got {level!r}")
 
     with open_table(path) as tab:
         info = MSInfo(path=os.path.abspath(path), format="MSv2",
@@ -110,28 +121,28 @@ def read(path: str, level: str = "full") -> MSInfo:
     return info
 
 
-def _aggregate(tab, with_data: bool = False) -> Dict[str, numpy.ndarray]:
+def _aggregate(tab, with_data: bool = False) -> dict[str, np.ndarray]:
     """One GROUPBY pass over the main table; returns column-name -> array."""
     aggregates = _AGGREGATES + (_DATA_AGGREGATES if with_data else [])
-    selects = list(_GROUP_KEYS) + ["{0} AS {1}".format(expr, name)
+    selects = list(_GROUP_KEYS) + [f"{expr} AS {name}"
                                    for name, expr in aggregates]
-    command = "SELECT {0} FROM $1 GROUPBY {1}".format(
+    command = "SELECT {} FROM $1 GROUPBY {}".format(
         ", ".join(selects), ", ".join(_GROUP_KEYS))
     LOGGER.debug("aggregating main table: %s", command)
 
     wanted = list(_GROUP_KEYS) + [name for name, _ in aggregates]
     with query(command, [tab]) as res:
-        return {name: numpy.asarray(res.getcol(name)) for name in wanted}
+        return {name: np.asarray(res.getcol(name)) for name in wanted}
 
 
-def _fold_groups(info: MSInfo, groups: Dict[str, numpy.ndarray],
-                 fields: List[Field], intents_by_state: Dict[int, List[str]]) -> None:
+def _fold_groups(info: MSInfo, groups: dict[str, np.ndarray],
+                 fields: list[Field], intents_by_state: dict[int, list[str]]) -> None:
     """Collapse the per-(field, scan, ddid, state) aggregates into the model."""
     ddid_to_spw = {dd.id: dd.spw_id for dd in info.data_descriptions}
     field_by_id = {f.id: f for f in fields}
 
-    scans: Dict[int, Scan] = {}
-    per_field: Dict[int, Dict[str, Any]] = {}
+    scans: dict[int, Scan] = {}
+    per_field: dict[int, dict[str, Any]] = {}
     max_uvw = None
     intervals = set()
     nflag = nvis = None
@@ -184,7 +195,7 @@ def _fold_groups(info: MSInfo, groups: Dict[str, numpy.ndarray],
     for fid, stats in per_field.items():
         target = field_by_id.get(fid)
         if target is None:                    # FIELD_ID with no FIELD row
-            target = field_by_id[fid] = Field(id=fid, name="FIELD_{0:d}".format(fid))
+            target = field_by_id[fid] = Field(id=fid, name=f"FIELD_{fid:d}")
             fields.append(target)
         target.nrows = stats["nrows"]
         target.time_start = stats["t0"]
@@ -205,28 +216,28 @@ def _fold_groups(info: MSInfo, groups: Dict[str, numpy.ndarray],
     info.nvisibilities = nvis
 
 
-def _read_baselines(tab) -> List[Tuple[int, int]]:
+def _read_baselines(tab) -> list[tuple[int, int]]:
     """The distinct antenna pairs actually present in the data."""
     with query("SELECT DISTINCT ANTENNA1, ANTENNA2 FROM $1", [tab]) as res:
         if res.nrows() == 0:
             return []
         return [(int(a), int(b))
-                for a, b in zip(res.getcol("ANTENNA1"), res.getcol("ANTENNA2"))]
+                for a, b in zip(res.getcol("ANTENNA1"), res.getcol("ANTENNA2"), strict=True)]
 
 
-def _max_antenna_separation(antennas, baselines: List[Tuple[int, int]]) -> Optional[float]:
+def _max_antenna_separation(antennas, baselines: list[tuple[int, int]]) -> float | None:
     """Longest physical separation, in metres, over the given antenna pairs."""
     if not baselines or not len(antennas):
         return None
-    position = {a.id: numpy.asarray(a.position, dtype=float) for a in antennas}
+    position = {a.id: np.asarray(a.position, dtype=float) for a in antennas}
     longest = 0.0
     for p, q in baselines:
         if p in position and q in position and p != q:
-            longest = max(longest, float(numpy.linalg.norm(position[p] - position[q])))
+            longest = max(longest, float(np.linalg.norm(position[p] - position[q])))
     return longest or None
 
 
-def _read_columns(tab) -> List[Column]:
+def _read_columns(tab) -> list[Column]:
     """Describe the main-table columns, including their data managers."""
     manager_of = {}
     try:
@@ -247,7 +258,7 @@ def _read_columns(tab) -> List[Column]:
             # Variable-shaped array column: sample the first cell. Unfilled
             # cells (FLAG_CATEGORY in most MSs) raise, and stay shapeless.
             try:
-                sampled = [int(s) for s in numpy.shape(tab.getcell(name, 0))]
+                sampled = [int(s) for s in np.shape(tab.getcell(name, 0))]
                 shape = sampled or None
             except RuntimeError:
                 shape = None
@@ -276,8 +287,8 @@ _ITEMSIZE = {
 }
 
 
-def _column_nbytes(valuetype: str, shape: Optional[List[int]],
-                   nrows: int) -> Optional[int]:
+def _column_nbytes(valuetype: str, shape: list[int] | None,
+                   nrows: int) -> int | None:
     """Logical size of a column: rows x cell size. Not on-disk size."""
     itemsize = _ITEMSIZE.get(str(valuetype).lower())
     if itemsize is None or not nrows:
@@ -288,7 +299,7 @@ def _column_nbytes(valuetype: str, shape: Optional[List[int]],
     return int(itemsize * cells * nrows)
 
 
-def _read_antennas(path: str) -> List[Antenna]:
+def _read_antennas(path: str) -> list[Antenna]:
     with open_table(path + "::ANTENNA") as tab:
         if tab.nrows() == 0:
             return []
@@ -307,7 +318,7 @@ def _read_antennas(path: str) -> List[Antenna]:
                 for i in range(tab.nrows())]
 
 
-def _read_spws(path: str) -> List[SpectralWindow]:
+def _read_spws(path: str) -> list[SpectralWindow]:
     with open_table(path + "::SPECTRAL_WINDOW") as tab:
         if tab.nrows() == 0:
             return []
@@ -319,8 +330,8 @@ def _read_spws(path: str) -> List[SpectralWindow]:
                 id=i,
                 name=names[i],
                 num_chan=int(tab.getcell("NUM_CHAN", i)),
-                chan_freq=[float(f) for f in numpy.atleast_1d(tab.getcell("CHAN_FREQ", i))],
-                chan_width=[float(w) for w in numpy.atleast_1d(tab.getcell("CHAN_WIDTH", i))],
+                chan_freq=[float(f) for f in np.atleast_1d(tab.getcell("CHAN_FREQ", i))],
+                chan_width=[float(w) for w in np.atleast_1d(tab.getcell("CHAN_WIDTH", i))],
                 ref_frequency=float(tab.getcell("REF_FREQUENCY", i)),
                 total_bandwidth=float(tab.getcell("TOTAL_BANDWIDTH", i)),
                 meas_freq_ref=int(tab.getcell("MEAS_FREQ_REF", i))
@@ -330,16 +341,16 @@ def _read_spws(path: str) -> List[SpectralWindow]:
         return spws
 
 
-def _read_polarizations(path: str) -> List[Polarization]:
+def _read_polarizations(path: str) -> list[Polarization]:
     with open_table(path + "::POLARIZATION") as tab:
         return [Polarization(id=i,
                              num_corr=int(tab.getcell("NUM_CORR", i)),
                              corr_type=[int(c) for c in
-                                        numpy.atleast_1d(tab.getcell("CORR_TYPE", i))])
+                                        np.atleast_1d(tab.getcell("CORR_TYPE", i))])
                 for i in range(tab.nrows())]
 
 
-def _read_data_descriptions(path: str, info: MSInfo) -> List[DataDescription]:
+def _read_data_descriptions(path: str, info: MSInfo) -> list[DataDescription]:
     with open_table(path + "::DATA_DESCRIPTION") as tab:
         if tab.nrows() == 0:
             # Degenerate MS: assume a 1:1 DDID -> SPW mapping.
@@ -353,7 +364,7 @@ def _read_data_descriptions(path: str, info: MSInfo) -> List[DataDescription]:
                 for i in range(tab.nrows())]
 
 
-def _read_fields(path: str) -> List[Field]:
+def _read_fields(path: str) -> list[Field]:
     with open_table(path + "::FIELD") as tab:
         if tab.nrows() == 0:
             return []
@@ -363,7 +374,7 @@ def _read_fields(path: str) -> List[Field]:
         frame = _direction_frame(tab, "PHASE_DIR")
         fields = []
         for i in range(tab.nrows()):
-            centre = numpy.atleast_2d(tab.getcell("PHASE_DIR", i))[0]
+            centre = np.atleast_2d(tab.getcell("PHASE_DIR", i))[0]
             fields.append(Field(
                 id=i, name=names[i], code=codes[i],
                 source_id=int(source_ids[i]) if source_ids is not None else -1,
@@ -377,7 +388,7 @@ def _read_observation(path: str) -> Observation:
     with open_table(path + "::OBSERVATION") as tab:
         if tab.nrows() == 0:
             return Observation()
-        span = numpy.atleast_1d(tab.getcell("TIME_RANGE", 0))
+        span = np.atleast_1d(tab.getcell("TIME_RANGE", 0))
         return Observation(
             telescope=str(tab.getcell("TELESCOPE_NAME", 0)),
             observer=str(tab.getcell("OBSERVER", 0)),
@@ -387,7 +398,7 @@ def _read_observation(path: str) -> Observation:
         )
 
 
-def _read_state_intents(path: str) -> Dict[int, List[str]]:
+def _read_state_intents(path: str) -> dict[int, list[str]]:
     """STATE_ID -> observing intents.
 
     ``OBS_MODE`` holds comma-separated intents such as
@@ -429,7 +440,7 @@ def _direction_frame(tab, column: str) -> str:
         return "J2000"
 
 
-def _strings(tab, column: str, nrows: int) -> List[str]:
+def _strings(tab, column: str, nrows: int) -> list[str]:
     """Read a string column, tolerating its absence."""
     if column not in tab.colnames() or nrows == 0:
         return [""] * nrows
@@ -446,18 +457,18 @@ def _optional_col(tab, column: str):
         return None
 
 
-def _max(current: Optional[float], candidate: Any) -> float:
+def _max(current: float | None, candidate: Any) -> float:
     value = float(candidate)
     return value if current is None else max(current, value)
 
 
-def _extend(target: List[Any], value: Any) -> None:
+def _extend(target: list[Any], value: Any) -> None:
     """Append ``value`` to ``target`` if not already present (order-preserving)."""
     if value not in target:
         target.append(value)
 
 
-def _directory_size(path: str) -> Optional[int]:
+def _directory_size(path: str) -> int | None:
     """Total bytes occupied by an MS directory tree."""
     total = 0
     try:

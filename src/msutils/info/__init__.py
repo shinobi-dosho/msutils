@@ -21,39 +21,53 @@ scanned the main table once per field and once per scan.
 from __future__ import annotations
 
 import os
-from typing import Optional
 
-from ._model import (SCHEMA_VERSION, STOKES_TYPES, Antenna, Column,
-                     DataDescription, Field, MSInfo, Observation, Polarization,
-                     Registry, Scan, SpectralWindow, format_dec, format_duration,
-                     format_ra, geodetic_to_itrf, itrf_to_geodetic,
-                     mjd_seconds_to_datetime)
+from ._model import (
+    SCHEMA_VERSION,
+    STOKES_TYPES,
+    Antenna,
+    Column,
+    DataDescription,
+    Field,
+    MSInfo,
+    Observation,
+    Polarization,
+    Registry,
+    Scan,
+    SpectralWindow,
+    format_dec,
+    format_duration,
+    format_ra,
+    geodetic_to_itrf,
+    itrf_to_geodetic,
+    mjd_seconds_to_datetime,
+)
 from ._render import format_bytes, format_frequency, render
 
 __all__ = [
-    "msinfo",
-    "detect_format",
-    "MSInfo",
-    "Observation",
-    "Antenna",
-    "Field",
-    "Scan",
-    "SpectralWindow",
-    "Polarization",
-    "DataDescription",
-    "Column",
-    "Registry",
     "SCHEMA_VERSION",
     "STOKES_TYPES",
-    "render",
+    "Antenna",
+    "Column",
+    "DataDescription",
+    "Field",
+    "MSInfo",
+    "Observation",
+    "Polarization",
+    "Registry",
+    "Scan",
+    "SpectralWindow",
+    "detect_format",
     "format_bytes",
-    "format_frequency",
-    "format_ra",
     "format_dec",
     "format_duration",
-    "itrf_to_geodetic",
+    "format_frequency",
+    "format_ra",
     "geodetic_to_itrf",
+    "itrf_to_geodetic",
     "mjd_seconds_to_datetime",
+    "msinfo",
+    "render",
 ]
 
 
@@ -81,12 +95,12 @@ def detect_format(path: str) -> str:
     except OSError:                            # pragma: no cover
         pass
     raise ValueError(
-        "{0!r} is neither a casacore MSv2 table nor a zarr MSv4 processing "
-        "set".format(path))
+        f"{path!r} is neither a casacore MSv2 table nor a zarr MSv4 processing "
+        "set")
 
 
-def msinfo(path: str, level: str = "full", outfile: Optional[str] = None,
-           format: Optional[str] = None, engine: Optional[str] = None) -> MSInfo:
+def msinfo(path: str, level: str = "full", outfile: str | None = None,
+           format: str | None = None, engine: str | None = None) -> MSInfo:
     """Collect structured metadata for the dataset at ``path``.
 
     Args:
@@ -124,7 +138,7 @@ def msinfo(path: str, level: str = "full", outfile: Optional[str] = None,
         from . import _msv4
         info = _msv4.read(path, level=level, engine=engine)
     else:
-        raise ValueError("unknown format {0!r}; expected 'MSv2' or 'MSv4'".format(fmt))
+        raise ValueError(f"unknown format {fmt!r}; expected 'MSv2' or 'MSv4'")
 
     if outfile:
         info.save(outfile)

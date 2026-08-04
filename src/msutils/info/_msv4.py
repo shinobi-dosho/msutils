@@ -30,14 +30,24 @@ Two mapping details worth knowing:
 from __future__ import annotations
 
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-import numpy
+import numpy as np
 
-from .._log import create_logger
-from ._model import (Antenna, DataDescription, Field, MSInfo, Observation,
-                     Polarization, Registry, Scan, SpectralWindow,
-                     STOKES_TYPES)
+from msutils._log import create_logger
+
+from ._model import (
+    STOKES_TYPES,
+    Antenna,
+    DataDescription,
+    Field,
+    MSInfo,
+    Observation,
+    Polarization,
+    Registry,
+    Scan,
+    SpectralWindow,
+)
 
 LOGGER = create_logger(__name__)
 
@@ -54,7 +64,7 @@ _STOKES_CODES = {label: code for code, label in STOKES_TYPES.items()}
 ENGINES = ("zarr", "xradio", "xarray-ms")
 
 
-def read(path: str, level: str = "full", engine: Optional[str] = None,
+def read(path: str, level: str = "full", engine: str | None = None,
          format: str = "MSv4") -> MSInfo:
     """Read MSv4-schema metadata at ``path``.
 
@@ -70,7 +80,7 @@ def read(path: str, level: str = "full", engine: Optional[str] = None,
     """
     from ._msv2 import LEVELS, _directory_size, _max_antenna_separation
     if level not in LEVELS:
-        raise ValueError("level must be one of {0}, got {1!r}".format(LEVELS, level))
+        raise ValueError(f"level must be one of {LEVELS}, got {level!r}")
 
     partitions, names, used_engine = _open(path, engine)
 
@@ -83,10 +93,10 @@ def read(path: str, level: str = "full", engine: Optional[str] = None,
     info.antennas = Registry(_read_antennas(partitions[0]))
     info.observation = _read_observation(partitions[0], info)
 
-    spws: Dict[str, SpectralWindow] = {}
-    pols: Dict[str, Polarization] = {}
-    fields: Dict[str, Field] = {}
-    scans: Dict[int, Scan] = {}
+    spws: dict[str, SpectralWindow] = {}
+    pols: dict[str, Polarization] = {}
+    fields: dict[str, Field] = {}
+    scans: dict[int, Scan] = {}
     intervals = set()
     nflagged = nvis = None
     nrows = 0
@@ -99,7 +109,7 @@ def read(path: str, level: str = "full", engine: Optional[str] = None,
         nbaseline = dataset.sizes.get("baseline_id", 0)
         nrows += ntime * nbaseline
 
-        times = _mjd_seconds(numpy.asarray(dataset.time.values))
+        times = _mjd_seconds(np.asarray(dataset.time.values))
         interval = _integration_time(dataset)
         intervals.add(round(interval, 6))
 
@@ -140,11 +150,10 @@ def read(path: str, level: str = "full", engine: Optional[str] = None,
     return info
 
 
-def _open(path: str, engine: Optional[str]) -> tuple:
+def _open(path: str, engine: str | None) -> tuple:
     """Open ``path`` as MSv4-schema partitions: (nodes, names, engine used)."""
     if engine is not None and engine not in ENGINES:
-        raise ValueError("engine must be one of {0}, got {1!r}".format(
-            ENGINES, engine))
+        raise ValueError(f"engine must be one of {ENGINES}, got {engine!r}")
 
     candidates = [engine] if engine else list(ENGINES)
     openers = {"zarr": _open_zarr, "xradio": _open_xradio,
@@ -154,18 +163,18 @@ def _open(path: str, engine: Optional[str]) -> tuple:
         try:
             nodes, labels = openers[name](path)
         except ImportError as exc:
-            failures.append("{0}: {1}".format(name, exc))
+            failures.append(f"{name}: {exc}")
             continue
         except Exception as exc:               # unreadable by this engine
-            failures.append("{0}: {1}".format(name, str(exc).split("\n")[0]))
+            failures.append("{}: {}".format(name, str(exc).split("\n")[0]))
             continue
         if nodes:
             LOGGER.debug("opened %s with the %s engine", path, name)
             return nodes, labels, name
-        failures.append("{0}: no partitions found".format(name))
+        failures.append(f"{name}: no partitions found")
 
     raise ValueError(
-        "could not read {0!r} as an MSv4-schema dataset. Tried:\n  {1}\n"
+        "could not read {!r} as an MSv4-schema dataset. Tried:\n  {}\n"
         "Reading MSv4 needs 'pip install msutils[msv4]'; reading an MSv2 "
         "through the MSv4 schema needs 'pip install msutils[xarray-ms]'."
         .format(path, "\n  ".join(failures)))
@@ -208,7 +217,7 @@ def _open_xarray_ms(path: str) -> tuple:
     this is just ``open_datatree`` on the MS itself.
     """
     import xarray
-    import xarray_ms                           # noqa: F401  (registers the backend)
+    import xarray_ms  # noqa: F401  (registers the backend)
 
     tree = xarray.open_datatree(str(path))
     names = sorted(tree.children)
@@ -256,7 +265,7 @@ def _fold_partition(partition, times, interval, spw, fields, scans,
             fields[name].scan_numbers.append(scan_number)
 
 
-def _read_antennas(partition) -> List[Antenna]:
+def _read_antennas(partition) -> list[Antenna]:
     """Antennas from a partition's ``antenna_xds`` sub-dataset."""
     try:
         antenna_xds = partition["antenna_xds"].ds
@@ -266,8 +275,8 @@ def _read_antennas(partition) -> List[Antenna]:
     names = _values(antenna_xds, "antenna_name")
     stations = _values(antenna_xds, "station_name")
     mounts = _values(antenna_xds, "mount")
-    positions = numpy.atleast_2d(numpy.asarray(antenna_xds.ANTENNA_POSITION.values))
-    diameters = (numpy.asarray(antenna_xds.ANTENNA_DISH_DIAMETER.values)
+    positions = np.atleast_2d(np.asarray(antenna_xds.ANTENNA_POSITION.values))
+    diameters = (np.asarray(antenna_xds.ANTENNA_DISH_DIAMETER.values)
                  if "ANTENNA_DISH_DIAMETER" in antenna_xds else None)
 
     antennas = []
@@ -303,7 +312,7 @@ def _read_observation(partition, info: MSInfo) -> Observation:
     return observation
 
 
-def _spw(dataset, spws: Dict[str, SpectralWindow]) -> SpectralWindow:
+def _spw(dataset, spws: dict[str, SpectralWindow]) -> SpectralWindow:
     """The spectral window this partition covers, created on first sight."""
     frequency = dataset.frequency
     attrs = dict(frequency.attrs)
@@ -311,7 +320,7 @@ def _spw(dataset, spws: Dict[str, SpectralWindow]) -> SpectralWindow:
     if name in spws:
         return spws[name]
 
-    channels = numpy.atleast_1d(numpy.asarray(frequency.values, dtype=float))
+    channels = np.atleast_1d(np.asarray(frequency.values, dtype=float))
     width = abs(float(_quantity(attrs.get("channel_width"), default=0.0)))
     spw = SpectralWindow(
         id=len(spws),
@@ -328,8 +337,8 @@ def _spw(dataset, spws: Dict[str, SpectralWindow]) -> SpectralWindow:
     return spw
 
 
-def _polarization(dataset, pols: Dict[str, Polarization]) -> Polarization:
-    labels = [str(v) for v in numpy.atleast_1d(dataset.polarization.values)]
+def _polarization(dataset, pols: dict[str, Polarization]) -> Polarization:
+    labels = [str(v) for v in np.atleast_1d(dataset.polarization.values)]
     key = ",".join(labels)
     if key not in pols:
         pols[key] = Polarization(
@@ -351,7 +360,7 @@ def _phase_centre(partition) -> tuple:
         if "FIELD_PHASE_CENTER_DIRECTION" not in xds:
             continue
         direction = xds.FIELD_PHASE_CENTER_DIRECTION
-        values = numpy.atleast_2d(numpy.asarray(direction.values, dtype=float))
+        values = np.atleast_2d(np.asarray(direction.values, dtype=float))
         frame = str(dict(direction.attrs).get("frame", "fk5"))
         if values.size >= 2:
             return (float(values[0][0]), float(values[0][1])), frame
@@ -363,7 +372,7 @@ def _count_flags(dataset) -> tuple:
     if "FLAG" not in dataset:
         return 0, 0
     flag = dataset.FLAG.data
-    total = int(numpy.prod(dataset.FLAG.shape))
+    total = int(np.prod(dataset.FLAG.shape))
     flagged = flag.sum()
     if hasattr(flagged, "compute"):            # dask-backed
         flagged = flagged.compute()
@@ -381,8 +390,8 @@ def _quantity(value: Any, default: float = 0.0) -> float:
     if value is None:
         return default
     if isinstance(value, dict):
-        return float(numpy.atleast_1d(value.get("data", default)).reshape(-1)[0])
-    return float(numpy.atleast_1d(value).reshape(-1)[0])
+        return float(np.atleast_1d(value.get("data", default)).reshape(-1)[0])
+    return float(np.atleast_1d(value).reshape(-1)[0])
 
 
 def _frame_code(observer: Any) -> int:
@@ -395,7 +404,7 @@ def _frame_code(observer: Any) -> int:
     return 5                                   # TOPO
 
 
-def _intents(dataset) -> List[str]:
+def _intents(dataset) -> list[str]:
     """Observing intents, which MSv4 hangs off the ``scan_name`` coordinate."""
     intents = []
     if "scan_name" in dataset.coords:
@@ -407,20 +416,20 @@ def _intents(dataset) -> List[str]:
     return [str(i) for i in intents]
 
 
-def _coord_strings(dataset, name: str, length: int) -> List[str]:
+def _coord_strings(dataset, name: str, length: int) -> list[str]:
     if name not in dataset.coords:
         return [""] * length
-    values = numpy.atleast_1d(numpy.asarray(dataset[name].values))
+    values = np.atleast_1d(np.asarray(dataset[name].values))
     return [str(v) for v in values]
 
 
 def _values(dataset, name: str):
     if name not in dataset.coords and name not in dataset:
         return []
-    return numpy.atleast_1d(numpy.asarray(dataset[name].values))
+    return np.atleast_1d(np.asarray(dataset[name].values))
 
 
-def _scan_number(scan_names: List[str], index: int) -> int:
+def _scan_number(scan_names: list[str], index: int) -> int:
     """MSv4 scan names are strings; keep the number when there is one."""
     if index >= len(scan_names):
         return 0
@@ -431,6 +440,6 @@ def _scan_number(scan_names: List[str], index: int) -> int:
         return abs(hash(name)) % (10 ** 6)
 
 
-def _mjd_seconds(times: numpy.ndarray) -> numpy.ndarray:
+def _mjd_seconds(times: np.ndarray) -> np.ndarray:
     """MSv4 unix epoch seconds -> the MJD seconds the model uses."""
-    return numpy.asarray(times, dtype=float) + _MJD_UNIX_OFFSET
+    return np.asarray(times, dtype=float) + _MJD_UNIX_OFFSET

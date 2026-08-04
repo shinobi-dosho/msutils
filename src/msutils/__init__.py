@@ -13,7 +13,8 @@ Everyday MS operations, exposed directly on the package::
 Feature-specific modules require optional extras -- ``msutils[flagstats]``,
 ``msutils[plots]``, ``msutils[average]``, ``msutils[msv4]``.
 """
-from importlib.metadata import PackageNotFoundError, version as _version
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _version
 
 from ._ms import (
     STOKES_TYPES,
@@ -23,8 +24,8 @@ from ._ms import (
     copycol,
     delcol,
     renamecol,
-    summary,
     sumcols,
+    summary,
     verify_antpos,
 )
 from .diagnostics import check, du, taql
@@ -39,34 +40,34 @@ except PackageNotFoundError:      # running from a source tree, not installed
     __version__ = "0.0.0.dev0"
 
 __all__ = [
-    "__version__",
-    # metadata
-    "msinfo",
-    "MSInfo",
-    "detect_format",
     "STOKES_TYPES",
+    "MSInfo",
+    "__version__",
     # columns
     "addcol",
-    "delcol",
-    "renamecol",
-    "copycol",
-    "sumcols",
     "addnoise",
-    "compute_vis_noise",
-    "verify_antpos",
-    # datasets
-    "subset",
     "average",
-    # flags
-    "flagstats",
-    "flag_backup",
-    "flag_restore",
-    "flag_versions",
-    "flag_delete",
+    "check",
+    "compute_vis_noise",
+    "copycol",
+    "delcol",
+    "detect_format",
     # diagnostics
     "du",
-    "check",
-    "taql",
+    "flag_backup",
+    "flag_delete",
+    "flag_restore",
+    "flag_versions",
+    # flags
+    "flagstats",
+    # metadata
+    "msinfo",
+    "renamecol",
+    # datasets
+    "subset",
+    "sumcols",
     # deprecated
     "summary",
+    "taql",
+    "verify_antpos",
 ]

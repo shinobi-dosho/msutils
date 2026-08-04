@@ -5,9 +5,9 @@ modes stay documented even if the surrounding code moves.
 """
 import numpy
 import pytest
+from casacore.tables import table
 
 import msutils
-from casacore.tables import table
 
 
 def _getcol(msname, col):

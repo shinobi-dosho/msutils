@@ -11,10 +11,12 @@ from __future__ import annotations
 
 import glob
 import os
-from dataclasses import dataclass, field as _field
-from typing import Any, Dict, List, Optional, Sequence
+from collections.abc import Sequence
+from dataclasses import dataclass
+from dataclasses import field as _field
+from typing import Any
 
-import numpy
+import numpy as np
 
 from ._log import create_logger
 from ._tables import open_table
@@ -22,7 +24,7 @@ from ._tables import query as _query
 from .info import msinfo
 from .info._render import format_bytes
 
-__all__ = ["du", "check", "taql", "DiskUsage", "StorageGroup", "CheckReport"]
+__all__ = ["CheckReport", "DiskUsage", "StorageGroup", "check", "du", "taql"]
 
 LOGGER = create_logger(__name__)
 
@@ -40,7 +42,7 @@ class StorageGroup:
 
     name: str
     type: str
-    columns: List[str] = _field(default_factory=list)
+    columns: list[str] = _field(default_factory=list)
     nbytes: int = 0
 
     def to_dict(self) -> dict:
@@ -55,8 +57,8 @@ class DiskUsage:
     path: str
     total: int = 0
     main_table: int = 0
-    storage: List[StorageGroup] = _field(default_factory=list)
-    subtables: Dict[str, int] = _field(default_factory=dict)
+    storage: list[StorageGroup] = _field(default_factory=list)
+    subtables: dict[str, int] = _field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {"path": self.path, "total": self.total,
@@ -65,15 +67,15 @@ class DiskUsage:
                 "subtables": self.subtables}
 
     def render(self) -> str:
-        lines = ["Disk usage: {0}".format(self.path),
-                 "  total: {0}".format(format_bytes(self.total))]
+        lines = [f"Disk usage: {self.path}",
+                 f"  total: {format_bytes(self.total)}"]
         lines.append("")
         lines.append("Main table by storage manager:")
         if not self.storage:
             lines.append("  (none)")
         for group in sorted(self.storage, key=lambda g: g.nbytes, reverse=True):
             share = (100.0 * group.nbytes / self.total) if self.total else 0.0
-            lines.append("  {0:>10}  {1:5.1f}%  {2:<18} {3}".format(
+            lines.append("  {:>10}  {:5.1f}%  {:<18} {}".format(
                 format_bytes(group.nbytes), share, group.type,
                 ", ".join(group.columns[:6])
                 + (", ..." if len(group.columns) > 6 else "")))
@@ -82,7 +84,7 @@ class DiskUsage:
             lines.append("Subtables:")
             for name, size in sorted(self.subtables.items(),
                                      key=lambda kv: kv[1], reverse=True):
-                lines.append("  {0:>10}  {1}".format(format_bytes(size), name))
+                lines.append(f"  {format_bytes(size):>10}  {name}")
         return "\n".join(lines)
 
     def __str__(self) -> str:
@@ -121,23 +123,22 @@ class CheckReport:
 
     path: str
     ok: bool = True
-    errors: List[str] = _field(default_factory=list)
-    warnings: List[str] = _field(default_factory=list)
+    errors: list[str] = _field(default_factory=list)
+    warnings: list[str] = _field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {"path": self.path, "ok": self.ok, "errors": self.errors,
                 "warnings": self.warnings}
 
     def render(self) -> str:
-        lines = ["Check: {0}".format(self.path)]
+        lines = [f"Check: {self.path}"]
         for message in self.errors:
-            lines.append("  ERROR   {0}".format(message))
+            lines.append(f"  ERROR   {message}")
         for message in self.warnings:
-            lines.append("  WARNING {0}".format(message))
-        lines.append("  {0}".format(
+            lines.append(f"  WARNING {message}")
+        lines.append("  {}".format(
             "OK -- conforms to the MSv2 standard" if self.ok
-            else "{0} error(s), {1} warning(s)".format(len(self.errors),
-                                                       len(self.warnings))))
+            else f"{len(self.errors)} error(s), {len(self.warnings)} warning(s)"))
         return "\n".join(lines)
 
     def __str__(self) -> str:
@@ -169,7 +170,7 @@ def check(msname: str) -> CheckReport:
         for column in required_columns:
             if column not in present:
                 report.errors.append(
-                    "main table is missing required column {0}".format(column))
+                    f"main table is missing required column {column}")
         if "DATA" not in present and "FLOAT_DATA" not in present:
             report.warnings.append(
                 "no DATA or FLOAT_DATA column: nothing to calibrate or image")
@@ -177,7 +178,7 @@ def check(msname: str) -> CheckReport:
         keywords = set(tab.keywordnames())
         for subtable in REQUIRED_SUBTABLES:
             if subtable not in keywords:
-                report.errors.append("missing required subtable {0}".format(subtable))
+                report.errors.append(f"missing required subtable {subtable}")
 
         if tab.nrows() == 0:
             report.warnings.append("main table has no rows")
@@ -190,18 +191,17 @@ def check(msname: str) -> CheckReport:
     for dd in info.data_descriptions:
         if dd.spw_id not in spw_ids:
             report.errors.append(
-                "DATA_DESC_ID {0} points at SPECTRAL_WINDOW_ID {1}, which does "
-                "not exist".format(dd.id, dd.spw_id))
+                f"DATA_DESC_ID {dd.id} points at SPECTRAL_WINDOW_ID {dd.spw_id}, which does "
+                "not exist")
         if dd.pol_id not in pol_ids:
             report.errors.append(
-                "DATA_DESC_ID {0} points at POLARIZATION_ID {1}, which does "
-                "not exist".format(dd.id, dd.pol_id))
+                f"DATA_DESC_ID {dd.id} points at POLARIZATION_ID {dd.pol_id}, which does "
+                "not exist")
 
     for spw in info.spws:
         if len(spw.chan_freq) != spw.num_chan:
             report.errors.append(
-                "SPW {0}: NUM_CHAN is {1} but CHAN_FREQ has {2} entries".format(
-                    spw.id, spw.num_chan, len(spw.chan_freq)))
+                f"SPW {spw.id}: NUM_CHAN is {spw.num_chan} but CHAN_FREQ has {len(spw.chan_freq)} entries")
 
     if info.nrows:
         _check_references(msname, info, report)
@@ -221,20 +221,19 @@ def _check_references(msname: str, info, report: CheckReport) -> None:
         for column, valid, subtable in checks:
             if column not in tab.colnames():
                 continue
-            with _query("SELECT DISTINCT {0} FROM $1".format(column), [tab]) as res:
+            with _query(f"SELECT DISTINCT {column} FROM $1", [tab]) as res:
                 if res.nrows() == 0:
                     continue
-                used = set(int(v) for v in res.getcol(column))
+                used = {int(v) for v in res.getcol(column)}
             dangling = sorted(used - valid)
             if dangling:
                 report.errors.append(
-                    "{0} references {1} row(s) that do not exist in {2}: "
-                    "{3}".format(column, len(dangling), subtable,
-                                 dangling[:10]))
+                    f"{column} references {len(dangling)} row(s) that do not exist in {subtable}: "
+                    f"{dangling[:10]}")
 
 
-def taql(command: str, msname: Optional[str] = None,
-         columns: Optional[Sequence[str]] = None) -> Dict[str, Any]:
+def taql(command: str, msname: str | None = None,
+         columns: Sequence[str] | None = None) -> dict[str, Any]:
     """Run a TaQL command and return the result columns as numpy arrays.
 
     Args:
@@ -256,13 +255,13 @@ def taql(command: str, msname: Optional[str] = None,
     return _run(command, [], columns)
 
 
-def _run(command: str, tables, columns) -> Dict[str, Any]:
+def _run(command: str, tables, columns) -> dict[str, Any]:
     with _query(command, tables) as res:
         wanted = list(columns) if columns else list(res.colnames())
         out = {}
         for name in wanted:
             try:
-                out[name] = numpy.asarray(res.getcol(name))
+                out[name] = np.asarray(res.getcol(name))
             except RuntimeError:
                 # Ragged cells: getcol refuses, getvarcol returns a dict.
                 out[name] = list(res.getvarcol(name).values())
@@ -280,7 +279,7 @@ def _manager_bytes(path: str, seqnr) -> int:
     """
     if seqnr is None:
         return 0
-    prefix = "table.f{0}".format(seqnr)
+    prefix = f"table.f{seqnr}"
     total = 0
     for candidate in glob.glob(os.path.join(path, prefix + "*")):
         suffix = os.path.basename(candidate)[len(prefix):]

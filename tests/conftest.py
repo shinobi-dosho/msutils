@@ -8,7 +8,6 @@ heavy simulation stack, and therefore no skipping. Anything that can
 import shutil
 
 import pytest
-
 from msfactory import make_ms
 
 

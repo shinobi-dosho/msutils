@@ -6,7 +6,7 @@ does, which is why the import lives inside the function.
 """
 from __future__ import annotations
 
-from typing import List, Sequence
+from collections.abc import Sequence
 
 from ._log import create_logger
 
@@ -21,8 +21,8 @@ _MAX_BARS = 64
 
 def plot_flagstats(stats, outfile: str) -> str:
     """Write a 3x2 bar-chart summary of ``stats`` to ``outfile``."""
-    import matplotlib
-    matplotlib.use("Agg")
+    import matplotlib as mpl
+    mpl.use("Agg")
     import matplotlib.pyplot as plt
 
     panels = [
@@ -35,7 +35,7 @@ def plot_flagstats(stats, outfile: str) -> str:
     ]
 
     fig, axes = plt.subplots(3, 2, figsize=(14, 12))
-    for (title, counts, rotate), ax in zip(panels, axes.flatten()):
+    for (title, counts, rotate), ax in zip(panels, axes.flatten(), strict=True):
         names, percents, note = _bars(counts)
         positions = range(len(names))
         ax.bar(positions, percents, width=0.9)
@@ -43,11 +43,10 @@ def plot_flagstats(stats, outfile: str) -> str:
         ax.set_xticklabels(names, rotation=90 if rotate else 0, fontsize=8)
         ax.set_xlabel(title)
         ax.set_ylabel("Flagged data (%)")
-        ax.set_title("{0} RFI summary{1}".format(title, note))
+        ax.set_title(f"{title} RFI summary{note}")
         ax.set_ylim(0, 100)
 
-    fig.suptitle("{0} -- {1:.2f}% flagged overall".format(
-        stats.path, stats.total.percent))
+    fig.suptitle(f"{stats.path} -- {stats.total.percent:.2f}% flagged overall")
     fig.tight_layout(rect=(0, 0, 1, 0.97))
     fig.savefig(outfile)
     plt.close(fig)
@@ -57,11 +56,11 @@ def plot_flagstats(stats, outfile: str) -> str:
 
 def _bars(counts: Sequence) -> tuple:
     """Bar labels and percentages, thinned to the worst bins when crowded."""
-    items: List = list(counts)
+    items: list = list(counts)
     if not items:
         return [], [], ""
     note = ""
     if len(items) > _MAX_BARS:
         items = sorted(items, key=lambda c: c.fraction, reverse=True)[:_MAX_BARS]
-        note = " (worst {0} of {1})".format(_MAX_BARS, len(counts))
+        note = f" (worst {_MAX_BARS} of {len(counts)})"
     return ([str(c.name) for c in items], [c.percent for c in items], note)

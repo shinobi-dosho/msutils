@@ -17,7 +17,7 @@ import os
 import shutil
 
 import numpy as np
-from casacore.tables import default_ms, maketabdesc, makearrcoldesc, table
+from casacore.tables import default_ms, makearrcoldesc, maketabdesc, table
 
 # MJD seconds for 2024-01-01T00:00:00 UTC (MJD 60310); arbitrary but fixed so
 # that rendered dates are stable across runs.
@@ -82,8 +82,8 @@ def _write_antenna(path, nant):
         # Roughly MeerKAT-like ITRF positions, spread over a ~1 km footprint.
         pos = np.array([[5109360.0 + i * 137.0, 2006852.0 + i * 91.0, -3238948.0 - i * 73.0]
                         for i in range(nant)])
-        tab.putcol("NAME", ["m%03d" % i for i in range(nant)])
-        tab.putcol("STATION", ["m%03d" % i for i in range(nant)])
+        tab.putcol("NAME", [f"m{i:03d}" for i in range(nant)])
+        tab.putcol("STATION", [f"m{i:03d}" for i in range(nant)])
         tab.putcol("POSITION", pos)
         tab.putcol("DISH_DIAMETER", np.full(nant, 13.5))
         tab.putcol("MOUNT", ["ALT-AZ"] * nant)
@@ -134,7 +134,7 @@ def _write_spw(path, nspw, nchan):
             tab.putcell("RESOLUTION", spw, np.full(nchan, df))
             tab.putcell("REF_FREQUENCY", spw, f0)
             tab.putcell("TOTAL_BANDWIDTH", spw, df * nchan)
-            tab.putcell("NAME", spw, "SPW%d" % spw)
+            tab.putcell("NAME", spw, f"SPW{spw}")
             tab.putcell("MEAS_FREQ_REF", spw, 5)  # TOPO
             tab.putcell("FREQ_GROUP_NAME", spw, "Group1")
 
@@ -165,7 +165,7 @@ def _write_field(path, nfield):
         for f in range(nfield):
             # (ra, dec) in radians, shape (1, 2) -- one polynomial term
             direction = np.array([[0.35 + f * 0.4, -0.52 - f * 0.05]])
-            tab.putcell("NAME", f, names[f] if f < len(names) else "FIELD%d" % f)
+            tab.putcell("NAME", f, names[f] if f < len(names) else f"FIELD{f}")
             tab.putcell("CODE", f, "")
             tab.putcell("PHASE_DIR", f, direction)
             tab.putcell("DELAY_DIR", f, direction)

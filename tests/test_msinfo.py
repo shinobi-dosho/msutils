@@ -11,8 +11,14 @@ import math
 import pytest
 
 import msutils
-from msutils.info import (Registry, detect_format, format_dec, format_ra,
-                          geodetic_to_itrf, itrf_to_geodetic)
+from msutils.info import (
+    Registry,
+    detect_format,
+    format_dec,
+    format_ra,
+    geodetic_to_itrf,
+    itrf_to_geodetic,
+)
 from msutils.info._model import SCHEMA_VERSION, Field, format_duration
 from msutils.info._render import format_bytes, format_frequency
 

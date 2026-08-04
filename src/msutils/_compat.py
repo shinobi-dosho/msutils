@@ -27,7 +27,7 @@ from __future__ import annotations
 import codecs
 import json
 import warnings
-from typing import Any, Dict, Optional
+from typing import Any
 
 from ._log import create_logger
 from ._tables import open_table, query
@@ -47,13 +47,11 @@ _DEPRECATION = (
 
 # Raw subtable columns the old summary() dumped wholesale. Reproduced so that
 # callers indexing e.g. info['ANT']['POSITION'] keep working.
-_SPW_COLUMNS = ("CHAN_FREQ MEAS_FREQ_REF REF_FREQUENCY TOTAL_BANDWIDTH NAME "
-                "NUM_CHAN IF_CONV_CHAIN NET_SIDEBAND FREQ_GROUP_NAME "
-                "CHAN_WIDTH").split()
+_SPW_COLUMNS = ["CHAN_FREQ", "MEAS_FREQ_REF", "REF_FREQUENCY", "TOTAL_BANDWIDTH", "NAME", "NUM_CHAN", "IF_CONV_CHAIN", "NET_SIDEBAND", "FREQ_GROUP_NAME", "CHAN_WIDTH"]
 
 
-def summary(msname: str, outfile: Optional[str] = None,
-            display: bool = True) -> Dict[str, Any]:
+def summary(msname: str, outfile: str | None = None,
+            display: bool = True) -> dict[str, Any]:
     """Deprecated. Use :func:`msutils.msinfo` instead.
 
     Returns the legacy summary dict, built from :func:`msinfo`.
@@ -61,7 +59,7 @@ def summary(msname: str, outfile: Optional[str] = None,
     warnings.warn(_DEPRECATION, FutureWarning, stacklevel=2)
 
     info = msinfo(msname, level="full")
-    out: Dict[str, Any] = {
+    out: dict[str, Any] = {
         "FIELD": {},
         "SPW": {},
         "ANT": {},
@@ -107,7 +105,7 @@ def summary(msname: str, outfile: Optional[str] = None,
     return out
 
 
-def _state_ids(msname: str) -> Dict[int, int]:
+def _state_ids(msname: str) -> dict[int, int]:
     """FIELD_ID -> the lowest STATE_ID the main table uses for that field.
 
     The legacy dict has room for one scalar per field, so a field observed
@@ -121,14 +119,14 @@ def _state_ids(msname: str) -> Dict[int, int]:
         with query("SELECT FIELD_ID, GMIN(STATE_ID) AS STATE_ID FROM $1 "
                    "GROUPBY FIELD_ID", [tab]) as res:
             return {int(f): int(s) for f, s in zip(res.getcol("FIELD_ID"),
-                                                   res.getcol("STATE_ID"))}
+                                                   res.getcol("STATE_ID"), strict=True)}
 
 
 def _dump_subtable(msname: str, subtable: str,
-                   columns: Optional[list]) -> Dict[str, Any]:
+                   columns: list | None) -> dict[str, Any]:
     """Read a subtable's columns into plain lists, as the old summary() did."""
-    out: Dict[str, Any] = {}
-    with open_table("{0}::{1}".format(msname, subtable)) as tab:
+    out: dict[str, Any] = {}
+    with open_table(f"{msname}::{subtable}") as tab:
         for name in (columns if columns is not None else tab.colnames()):
             if name not in tab.colnames():
                 continue

@@ -16,17 +16,16 @@ import datetime
 import os
 import shutil
 from dataclasses import dataclass
-from typing import List, Optional
 
 from ._log import create_logger
 from ._tables import open_table, query
 
 __all__ = [
+    "FlagVersion",
     "flag_backup",
+    "flag_delete",
     "flag_restore",
     "flag_versions",
-    "flag_delete",
-    "FlagVersion",
 ]
 
 LOGGER = create_logger(__name__)
@@ -59,7 +58,7 @@ def _version_path(msname: str, name: str) -> str:
     return os.path.join(_versions_dir(msname), "flags." + name)
 
 
-def flag_backup(msname: str, name: Optional[str] = None,
+def flag_backup(msname: str, name: str | None = None,
                 description: str = "", overwrite: bool = False) -> FlagVersion:
     """Save the current FLAG/FLAG_ROW columns as a named version.
 
@@ -75,7 +74,7 @@ def flag_backup(msname: str, name: Optional[str] = None,
     # `None` means "pick a default"; an explicit empty string is a mistake and
     # is reported as one rather than silently becoming a timestamp.
     if name is None:
-        name = datetime.datetime.now(datetime.timezone.utc).strftime(
+        name = datetime.datetime.now(datetime.UTC).strftime(
             "backup_%Y%m%d-%H%M%S")
     _validate_name(name)
 
@@ -83,14 +82,14 @@ def flag_backup(msname: str, name: Optional[str] = None,
     if os.path.exists(target):
         if not overwrite:
             raise FileExistsError(
-                "flag version {0!r} already exists at {1}; pass overwrite=True "
-                "to replace it".format(name, target))
+                f"flag version {name!r} already exists at {target}; pass overwrite=True "
+                "to replace it")
         shutil.rmtree(target)
     os.makedirs(_versions_dir(msname), exist_ok=True)
 
     with open_table(msname) as tab:
         nrows = tab.nrows()
-        with query("SELECT {0} FROM $1".format(", ".join(_FLAG_COLUMNS)),
+        with query("SELECT {} FROM $1".format(", ".join(_FLAG_COLUMNS)),
                    [tab]) as selection:
             copied = selection.copy(target, deep=True)
             copied.close()
@@ -113,15 +112,13 @@ def flag_restore(msname: str, name: str, rowchunk: int = 100000) -> FlagVersion:
     source = _version_path(msname, name)
     if not os.path.exists(source):
         raise FileNotFoundError(
-            "no flag version {0!r} for {1}; have {2}".format(
-                name, msname, [v.name for v in flag_versions(msname)]))
+            f"no flag version {name!r} for {msname}; have {[v.name for v in flag_versions(msname)]}")
 
     with open_table(msname, readonly=False) as tab, open_table(source) as saved:
         if saved.nrows() != tab.nrows():
             raise ValueError(
-                "flag version {0!r} has {1} rows but {2} has {3}; the MS has "
-                "changed since the backup".format(
-                    name, saved.nrows(), msname, tab.nrows()))
+                f"flag version {name!r} has {saved.nrows()} rows but {msname} has {tab.nrows()}; the MS has "
+                "changed since the backup")
 
         nrows = tab.nrows()
         for row0 in range(0, nrows, rowchunk):
@@ -134,7 +131,7 @@ def flag_restore(msname: str, name: str, rowchunk: int = 100000) -> FlagVersion:
     return FlagVersion(name=name, path=source, nrows=nrows)
 
 
-def flag_versions(msname: str) -> List[FlagVersion]:
+def flag_versions(msname: str) -> list[FlagVersion]:
     """List the saved flag versions for an MS, newest last."""
     root = _versions_dir(msname)
     if not os.path.isdir(root):
@@ -166,7 +163,7 @@ def flag_delete(msname: str, name: str) -> None:
     """Delete a saved flag version."""
     target = _version_path(msname, name)
     if not os.path.exists(target):
-        raise FileNotFoundError("no flag version {0!r} for {1}".format(name, msname))
+        raise FileNotFoundError(f"no flag version {name!r} for {msname}")
     shutil.rmtree(target)
     _rewrite_list(msname, [v for v in flag_versions(msname) if v.name != name])
     LOGGER.info("Deleted flag version %r", name)
@@ -175,8 +172,8 @@ def flag_delete(msname: str, name: str) -> None:
 def _validate_name(name: str) -> None:
     if not name or os.sep in name or name.startswith("."):
         raise ValueError(
-            "invalid flag version name {0!r}: must be non-empty, contain no "
-            "path separator, and not start with '.'".format(name))
+            f"invalid flag version name {name!r}: must be non-empty, contain no "
+            "path separator, and not start with '.'")
 
 
 def _append_to_list(msname: str, version: FlagVersion) -> None:
@@ -186,13 +183,11 @@ def _append_to_list(msname: str, version: FlagVersion) -> None:
                            for n, d in sorted(existing.items())])
 
 
-def _rewrite_list(msname: str, versions: List[FlagVersion]) -> None:
+def _rewrite_list(msname: str, versions: list[FlagVersion]) -> None:
     path = os.path.join(_versions_dir(msname), _LIST_FILE)
     try:
         with open(path, "w", encoding="utf-8") as stream:
-            for version in versions:
-                stream.write("{0} : {1}\n".format(version.name,
-                                                  version.description))
+            stream.writelines(f"{version.name} : {version.description}\n" for version in versions)
     except OSError as exc:                     # pragma: no cover - permissions
         LOGGER.warning("Could not update %s: %s", path, exc)
 

@@ -94,7 +94,7 @@ def test_max_baseline_matches(v2, v4):
 
 def test_antennas_match(v2, v4):
     assert v4.antennas.names == v2.antennas.names
-    for a4, a2 in zip(v4.antennas, v2.antennas):
+    for a4, a2 in zip(v4.antennas, v2.antennas, strict=True):
         assert a4.position == pytest.approx(a2.position)
         assert a4.dish_diameter == a2.dish_diameter
         assert a4.latitude == pytest.approx(a2.latitude)
@@ -111,7 +111,7 @@ def test_scan_durations_match(v2, v4):
 
 
 def test_phase_centres_match(v2, v4):
-    for f4, f2 in zip(v4.fields, v2.fields):
+    for f4, f2 in zip(v4.fields, v2.fields, strict=True):
         assert f4.phase_centre == pytest.approx(f2.phase_centre)
         assert f4.ra_hms == f2.ra_hms
         assert f4.dec_dms == f2.dec_dms
@@ -127,7 +127,7 @@ def test_polarizations_match(v2, v4):
 
 
 def test_spw_frequencies_match(v2, v4):
-    for s4, s2 in zip(v4.spws, v2.spws):
+    for s4, s2 in zip(v4.spws, v2.spws, strict=True):
         assert s4.chan_freq == pytest.approx(s2.chan_freq)
         assert s4.chan_width == pytest.approx(s2.chan_width)
         assert s4.frame == s2.frame
@@ -281,6 +281,9 @@ def test_casacore_engine_tolerates_an_ms_stricter_readers_reject(tmp_path):
     info = msutils.msinfo(path)               # must not raise
     assert info.nfields == 3 and info.nscans == 6
 
-    pytest.importorskip("xarray_ms")
-    with pytest.raises(Exception):
+    xarray_ms_errors = pytest.importorskip("xarray_ms.errors")
+    with pytest.raises(
+        (xarray_ms_errors.InvalidMeasurementSet, ValueError),
+        match=r"(?i)feed|could not read",
+    ):
         msutils.msinfo(path, engine="xarray-ms")

@@ -13,12 +13,13 @@ from __future__ import annotations
 
 import os
 import shutil
-from typing import Any, List, Optional, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 from ._log import create_logger
 from .info import MSInfo, msinfo
 
-__all__ = ["to_msv4", "PARTITION_KEYS"]
+__all__ = ["PARTITION_KEYS", "to_msv4"]
 
 LOGGER = create_logger(__name__)
 
@@ -28,7 +29,7 @@ PARTITION_KEYS = ("FIELD_ID", "SCAN_NUMBER", "STATE_ID", "ANTENNA1")
 
 
 def to_msv4(msname: str, outpath: str,
-            partition_scheme: Optional[Sequence[str]] = None,
+            partition_scheme: Sequence[str] | None = None,
             overwrite: bool = False,
             with_pointing: bool = True,
             storage_backend: str = "zarr",
@@ -58,20 +59,18 @@ def to_msv4(msname: str, outpath: str,
             "MSv4 conversion needs xradio. Install with: "
             "pip install 'msutils[convert]'") from exc
 
-    scheme: List[str] = list(partition_scheme or [])
+    scheme: list[str] = list(partition_scheme or [])
     unknown = [key for key in scheme if key not in PARTITION_KEYS]
     if unknown:
         raise ValueError(
-            "unknown partition key(s) {0}; expected any of {1}".format(
-                unknown, list(PARTITION_KEYS)))
+            f"unknown partition key(s) {unknown}; expected any of {list(PARTITION_KEYS)}")
 
     for existing in (outpath, outpath + _XRADIO_SUFFIX):
         if not os.path.exists(existing):
             continue
         if not overwrite:
             raise FileExistsError(
-                "{0} already exists; pass overwrite=True to replace it".format(
-                    existing))
+                f"{existing} already exists; pass overwrite=True to replace it")
         shutil.rmtree(existing)
 
     LOGGER.info("Converting %s -> %s (MSv4, partition_scheme=%s)",

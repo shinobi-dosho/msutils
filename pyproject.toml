@@ -124,9 +124,62 @@ pythonpath = ["src", "tests"]
 addopts = "--import-mode=importlib"
 
 [tool.ruff]
-line-length = 180
+line-length = 100
 
 [tool.ruff.lint]
-# Mirror the pre-refactor flake8 hard-fail gate: syntax errors and
-# undefined names only. `# noqa: F821` markers in the source are load-bearing.
-select = ["E9", "F63", "F7", "F82"]
+# `select`, not `extend-select` and not the implicit default. This list is the
+# repo's *whole* ruleset, stated outright rather than inherited from whatever
+# ruff happens to enable this month -- a ruff upgrade that widens its defaults
+# then shows up in the PR that bumps the lock, where it can be read, instead of
+# in whichever PR happens to follow.
+#
+# 2.x ran a four-rule gate (E9/F63/F7/F82) inherited from the old flake8 setup,
+# which caught syntax errors and undefined names and nothing else. The families
+# below are the ones whose findings on this tree were worth fixing, and they
+# are fixed -- nothing here is aspirational.
+select = [
+    "F",     # pyflakes -- real errors: undefined names, unused imports
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "B",     # bugbear -- mutable defaults, blind excepts, ...
+    "C4",    # comprehension rewrites
+    "DTZ",   # naive datetimes -- MS times are UTC, and it matters here
+    "EXE",   # shebang/executable-bit mismatches
+    "FA",    # missing `from __future__ import annotations`
+    "FURB",  # modernizations
+    "G",     # logging call format (no f-strings in logger.* -- lazy % args)
+    "I",     # import sorting
+    "ICN",   # conventional import aliases
+    "ISC",   # implicit string concatenation
+    "LOG",   # logging misuse
+    "PGH",   # blanket `# noqa` / `# type: ignore` without a code
+    "PLE",   # pylint errors
+    "PLW",   # pylint warnings
+    "Q",     # quote style
+    "RSE",   # `raise X()` not `raise X`
+    "RUF",   # ruff's own rules, incl. unused `# noqa`
+    "SIM",   # simplifications
+    "T10",   # stray debugger imports
+    "T20",   # stray `print` -- this is a library; CLI output goes through click
+    "TID",   # relative-import hygiene
+    "UP",    # pyupgrade -- the floor is 3.11, so PEP 585/604 apply
+    "YTT",   # sys.version misuse
+]
+ignore = [
+    # The formatter owns line length. E501 would only ever fire on lines
+    # `ruff format` has already declared final (long string literals it cannot
+    # split), which is a permanent floor, not a signal.
+    "E501",
+]
+
+# Deliberately NOT selected: PLR/PLC (magic numbers, argument counts -- a
+# project-wide policy choice, not a cleanup), ERA (prose in comments that reads
+# as code), and ANN/D/S (annotations, docstring style, bandit -- same reason).
+
+[tool.ruff.lint.per-file-ignores]
+# The synthetic-MS factory and the tests around it read better with numpy's
+# `np` alias than with the `numpy` the library uses.
+"tests/**" = ["ICN001"]
+
+[tool.ruff.format]
+docstring-code-format = true

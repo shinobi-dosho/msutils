@@ -16,25 +16,26 @@ from __future__ import annotations
 
 import os
 import shutil
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from collections.abc import Sequence
+from typing import Any
 
-import numpy
+import numpy as np
 
 from ._log import create_logger
 from ._tables import closing_table, open_table, query
 from .info import msinfo
 
-__all__ = ["subset", "average"]
+__all__ = ["average", "subset"]
 
 LOGGER = create_logger(__name__)
 
 
 def subset(msname: str, outms: str,
-           fields: Optional[Sequence] = None,
-           spws: Optional[Sequence] = None,
-           scans: Optional[Sequence] = None,
-           antennas: Optional[Sequence] = None,
-           taql: Optional[str] = None,
+           fields: Sequence | None = None,
+           spws: Sequence | None = None,
+           scans: Sequence | None = None,
+           antennas: Sequence | None = None,
+           taql: str | None = None,
            overwrite: bool = False) -> str:
     """Write the selected rows of ``msname`` to a new MS at ``outms``.
 
@@ -65,7 +66,7 @@ def subset(msname: str, outms: str,
             nrows = selection.nrows()
             if nrows == 0:
                 raise ValueError(
-                    "selection matched no rows: {0}".format(where or "all rows"))
+                    "selection matched no rows: {}".format(where or "all rows"))
             with closing_table(selection.copy(outms, deep=True)):
                 pass
 
@@ -76,10 +77,10 @@ def subset(msname: str, outms: str,
 def average(msname: str, outms: str,
             time_bin: float = 1.0,
             chan_bin: int = 1,
-            fields: Optional[Sequence] = None,
-            spws: Optional[Sequence] = None,
-            scans: Optional[Sequence] = None,
-            antennas: Optional[Sequence] = None,
+            fields: Sequence | None = None,
+            spws: Sequence | None = None,
+            scans: Sequence | None = None,
+            antennas: Sequence | None = None,
             datacolumn: str = "DATA",
             overwrite: bool = False,
             rowchunk: int = 100000) -> str:
@@ -113,9 +114,9 @@ def average(msname: str, outms: str,
             "pip install 'msutils[average]'") from exc
 
     if chan_bin < 1:
-        raise ValueError("chan_bin must be >= 1, got {0}".format(chan_bin))
+        raise ValueError(f"chan_bin must be >= 1, got {chan_bin}")
     if time_bin <= 0:
-        raise ValueError("time_bin must be > 0, got {0}".format(time_bin))
+        raise ValueError(f"time_bin must be > 0, got {time_bin}")
 
     info = msinfo(msname, level="meta")
     where = _selection(info, fields=fields, spws=spws, scans=scans,
@@ -124,26 +125,26 @@ def average(msname: str, outms: str,
 
     with open_table(msname) as tab:
         if datacolumn not in tab.colnames():
-            raise ValueError("{0} has no column {1!r}".format(msname, datacolumn))
+            raise ValueError(f"{msname} has no column {datacolumn!r}")
         optional = [c for c in ("WEIGHT_SPECTRUM", "SIGMA_SPECTRUM")
                     if c in tab.colnames()]
         groups = _groups(tab, where)
         if not groups:
             raise ValueError(
-                "selection matched no rows: {0}".format(where or "all rows"))
+                "selection matched no rows: {}".format(where or "all rows"))
 
         spw_of_ddid = {d.id: d.spw_id for d in info.data_descriptions}
-        averaged_spw: Dict[int, Tuple[numpy.ndarray, numpy.ndarray]] = {}
-        blocks: List[Dict[str, Any]] = []
+        averaged_spw: dict[int, tuple[np.ndarray, np.ndarray]] = {}
+        blocks: list[dict[str, Any]] = []
 
         for (field_id, ddid, scan) in groups:
             spw = info.spws[spw_of_ddid[ddid]]
-            chan_freq = numpy.asarray(spw.chan_freq, dtype=numpy.float64)
-            chan_width = numpy.asarray(spw.chan_width, dtype=numpy.float64)
+            chan_freq = np.asarray(spw.chan_freq, dtype=np.float64)
+            chan_width = np.asarray(spw.chan_width, dtype=np.float64)
 
-            clauses = ["FIELD_ID=={0:d}".format(field_id),
-                       "DATA_DESC_ID=={0:d}".format(ddid),
-                       "SCAN_NUMBER=={0:d}".format(scan)]
+            clauses = [f"FIELD_ID=={field_id:d}",
+                       f"DATA_DESC_ID=={ddid:d}",
+                       f"SCAN_NUMBER=={scan:d}"]
             if where:
                 clauses.append("(" + where + ")")
             command = ("SELECT FROM $1 WHERE " + " AND ".join(clauses)
@@ -173,7 +174,7 @@ def average(msname: str, outms: str,
 # --------------------------------------------------------------------------
 # averaging internals
 
-def _groups(tab, where: str) -> List[Tuple[int, int, int]]:
+def _groups(tab, where: str) -> list[tuple[int, int, int]]:
     """The (field, ddid, scan) groups present, in a stable order.
 
     Time bins must not straddle scans or spectral windows, so this is the
@@ -187,11 +188,11 @@ def _groups(tab, where: str) -> List[Tuple[int, int, int]]:
             return []
         return sorted(zip((int(v) for v in res.getcol("FIELD_ID")),
                           (int(v) for v in res.getcol("DATA_DESC_ID")),
-                          (int(v) for v in res.getcol("SCAN_NUMBER"))))
+                          (int(v) for v in res.getcol("SCAN_NUMBER")), strict=False))
 
 
-def _reconcile_flags(flag: numpy.ndarray,
-                     flag_row: numpy.ndarray) -> Tuple[numpy.ndarray, numpy.ndarray]:
+def _reconcile_flags(flag: np.ndarray,
+                     flag_row: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Make FLAG and FLAG_ROW mutually consistent.
 
     africanus rejects inputs where ``flag_row`` disagrees with ``flag``
@@ -201,39 +202,39 @@ def _reconcile_flags(flag: numpy.ndarray,
     fold that into FLAG, then derive FLAG_ROW back from it. Nothing flagged is
     ever unflagged by this.
     """
-    flag = numpy.asarray(flag, dtype=bool)
-    flag_row = numpy.asarray(flag_row, dtype=bool)
+    flag = np.asarray(flag, dtype=bool)
+    flag_row = np.asarray(flag_row, dtype=bool)
     if flag_row.any():
-        flag = flag | flag_row[:, numpy.newaxis, numpy.newaxis]
+        flag = flag | flag_row[:, np.newaxis, np.newaxis]
     return flag, flag.all(axis=(1, 2))
 
 
 def _average_group(time_and_channel, rows, datacolumn, optional,
                    chan_freq, chan_width, time_bin, chan_bin,
-                   rowchunk) -> Dict[str, Any]:
+                   rowchunk) -> dict[str, Any]:
     """Average one (field, ddid, scan) group and return its output arrays."""
     flag, flag_row = _reconcile_flags(rows.getcol("FLAG"), rows.getcol("FLAG_ROW"))
 
-    kwargs = dict(
-        time=rows.getcol("TIME"),
-        interval=rows.getcol("INTERVAL"),
-        antenna1=rows.getcol("ANTENNA1"),
-        antenna2=rows.getcol("ANTENNA2"),
-        time_centroid=rows.getcol("TIME_CENTROID"),
-        exposure=rows.getcol("EXPOSURE"),
-        flag_row=flag_row,
-        uvw=rows.getcol("UVW"),
-        weight=rows.getcol("WEIGHT"),
-        sigma=rows.getcol("SIGMA"),
-        chan_freq=chan_freq,
-        chan_width=chan_width,
-        effective_bw=chan_width,
-        resolution=chan_width,
-        visibilities=rows.getcol(datacolumn),
-        flag=flag,
-        time_bin_secs=float(time_bin),
-        chan_bin_size=int(chan_bin),
-    )
+    kwargs = {
+        "time": rows.getcol("TIME"),
+        "interval": rows.getcol("INTERVAL"),
+        "antenna1": rows.getcol("ANTENNA1"),
+        "antenna2": rows.getcol("ANTENNA2"),
+        "time_centroid": rows.getcol("TIME_CENTROID"),
+        "exposure": rows.getcol("EXPOSURE"),
+        "flag_row": flag_row,
+        "uvw": rows.getcol("UVW"),
+        "weight": rows.getcol("WEIGHT"),
+        "sigma": rows.getcol("SIGMA"),
+        "chan_freq": chan_freq,
+        "chan_width": chan_width,
+        "effective_bw": chan_width,
+        "resolution": chan_width,
+        "visibilities": rows.getcol(datacolumn),
+        "flag": flag,
+        "time_bin_secs": float(time_bin),
+        "chan_bin_size": int(chan_bin),
+    }
     for column in optional:
         kwargs[column.lower()] = rows.getcol(column)
 
@@ -263,8 +264,7 @@ def _average_group(time_and_channel, rows, datacolumn, optional,
 def _write_output(msname: str, outms: str, info, blocks, averaged_spw,
                   optional, datacolumn: str) -> None:
     """Build the output MS: averaged main table, rebuilt SPECTRAL_WINDOW."""
-    from casacore.tables import (default_ms, makearrcoldesc, maketabdesc,
-                                 table)
+    from casacore.tables import default_ms, makearrcoldesc, maketabdesc, table
 
     if not blocks:
         raise ValueError("nothing to write: no group produced any rows")
@@ -306,8 +306,8 @@ def _write_output(msname: str, outms: str, info, blocks, averaged_spw,
             out.putcol("TIME_CENTROID", block["time_centroid"], row0, nrows)
             out.putcol("INTERVAL", block["interval"], row0, nrows)
             out.putcol("EXPOSURE", block["exposure"], row0, nrows)
-            out.putcol("ANTENNA1", block["antenna1"].astype(numpy.int32), row0, nrows)
-            out.putcol("ANTENNA2", block["antenna2"].astype(numpy.int32), row0, nrows)
+            out.putcol("ANTENNA1", block["antenna1"].astype(np.int32), row0, nrows)
+            out.putcol("ANTENNA2", block["antenna2"].astype(np.int32), row0, nrows)
             out.putcol("UVW", block["uvw"], row0, nrows)
             out.putcol("WEIGHT", block["weight"], row0, nrows)
             out.putcol("SIGMA", block["sigma"], row0, nrows)
@@ -321,10 +321,10 @@ def _write_output(msname: str, outms: str, info, blocks, averaged_spw,
             for name, value in (("FIELD_ID", block["field_id"]),
                                 ("DATA_DESC_ID", block["ddid"]),
                                 ("SCAN_NUMBER", block["scan"])):
-                out.putcol(name, numpy.full(nrows, value, numpy.int32), row0, nrows)
+                out.putcol(name, np.full(nrows, value, np.int32), row0, nrows)
             for name in ("ARRAY_ID", "OBSERVATION_ID", "PROCESSOR_ID",
                          "FEED1", "FEED2", "STATE_ID"):
-                out.putcol(name, numpy.zeros(nrows, numpy.int32), row0, nrows)
+                out.putcol(name, np.zeros(nrows, np.int32), row0, nrows)
             row0 += nrows
 
 
@@ -339,15 +339,15 @@ def _write_averaged_spw(msname: str, outms: str, info, averaged_spw) -> None:
         for spw_id, (chan_freq, chan_width) in averaged_spw.items():
             if spw_id >= tab.nrows():          # pragma: no cover - malformed MS
                 continue
-            chan_freq = numpy.atleast_1d(chan_freq)
-            chan_width = numpy.atleast_1d(chan_width)
-            tab.putcell("NUM_CHAN", spw_id, len(chan_freq))
-            tab.putcell("CHAN_FREQ", spw_id, chan_freq)
-            tab.putcell("CHAN_WIDTH", spw_id, chan_width)
-            tab.putcell("EFFECTIVE_BW", spw_id, chan_width)
-            tab.putcell("RESOLUTION", spw_id, chan_width)
-            tab.putcell("TOTAL_BANDWIDTH", spw_id, float(numpy.abs(chan_width).sum()))
-            tab.putcell("REF_FREQUENCY", spw_id, float(chan_freq[0]))
+            freqs = np.atleast_1d(chan_freq)
+            widths = np.atleast_1d(chan_width)
+            tab.putcell("NUM_CHAN", spw_id, len(freqs))
+            tab.putcell("CHAN_FREQ", spw_id, freqs)
+            tab.putcell("CHAN_WIDTH", spw_id, widths)
+            tab.putcell("EFFECTIVE_BW", spw_id, widths)
+            tab.putcell("RESOLUTION", spw_id, widths)
+            tab.putcell("TOTAL_BANDWIDTH", spw_id, float(np.abs(widths).sum()))
+            tab.putcell("REF_FREQUENCY", spw_id, float(freqs[0]))
 
 
 def _copy_subtable(msname: str, outms: str, name: str) -> None:
@@ -376,7 +376,7 @@ def _selection(info, fields=None, spws=None, scans=None, antennas=None,
     clauses = []
     field_ids = _resolve(fields, info.fields, "field")
     if field_ids:
-        clauses.append("FIELD_ID IN [{0}]".format(",".join(map(str, field_ids))))
+        clauses.append("FIELD_ID IN [{}]".format(",".join(map(str, field_ids))))
 
     spw_ids = _resolve(spws, info.spws, "spectral window")
     if spw_ids:
@@ -384,16 +384,16 @@ def _selection(info, fields=None, spws=None, scans=None, antennas=None,
         ddids = [d.id for d in info.data_descriptions if d.spw_id in spw_ids]
         if not ddids:
             raise ValueError("no DATA_DESC_IDs map to the requested SPWs")
-        clauses.append("DATA_DESC_ID IN [{0}]".format(",".join(map(str, ddids))))
+        clauses.append("DATA_DESC_ID IN [{}]".format(",".join(map(str, ddids))))
 
     if scans:
-        clauses.append("SCAN_NUMBER IN [{0}]".format(
+        clauses.append("SCAN_NUMBER IN [{}]".format(
             ",".join(str(int(s)) for s in scans)))
 
     antenna_ids = _resolve(antennas, info.antennas, "antenna")
     if antenna_ids:
         listed = ",".join(map(str, antenna_ids))
-        clauses.append("(ANTENNA1 IN [{0}] OR ANTENNA2 IN [{0}])".format(listed))
+        clauses.append(f"(ANTENNA1 IN [{listed}] OR ANTENNA2 IN [{listed}])")
 
     if taql:
         clauses.append("(" + taql + ")")
@@ -401,7 +401,7 @@ def _selection(info, fields=None, spws=None, scans=None, antennas=None,
     return " AND ".join(clauses)
 
 
-def _resolve(selection, registry, label: str) -> Optional[List[int]]:
+def _resolve(selection, registry, label: str) -> list[int] | None:
     """Map a mixed list of ids and names to ids."""
     if not selection:
         return None
@@ -411,13 +411,11 @@ def _resolve(selection, registry, label: str) -> Optional[List[int]]:
             try:
                 resolved.append(registry[item].id)
             except KeyError:
-                raise ValueError("unknown {0} {1!r}; have {2}".format(
-                    label, item, registry.names)) from None
+                raise ValueError(f"unknown {label} {item!r}; have {registry.names}") from None
         else:
             ident = int(item)
             if ident not in registry.ids:
-                raise ValueError("unknown {0} id {1}; have {2}".format(
-                    label, ident, registry.ids))
+                raise ValueError(f"unknown {label} id {ident}; have {registry.ids}")
             resolved.append(ident)
     return resolved
 
@@ -426,5 +424,5 @@ def _prepare_output(outms: str, overwrite: bool) -> None:
     if os.path.exists(outms):
         if not overwrite:
             raise FileExistsError(
-                "{0} already exists; pass overwrite=True to replace it".format(outms))
+                f"{outms} already exists; pass overwrite=True to replace it")
         shutil.rmtree(outms)

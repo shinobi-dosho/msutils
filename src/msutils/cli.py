@@ -148,10 +148,11 @@ def flagstats(ms, plotfile, outfile, fields, antennas, spws, scans, quiet):
     if plotfile:
         try:
             from ._flagplot import plot_flagstats
-        except ImportError:
+        except ImportError as exc:
             raise click.ClickException(
                 "plotting needs matplotlib. Install with: "
-                "pip install 'msutils[plots]'")
+                "pip install 'msutils[plots]'"
+            ) from exc
         plot_flagstats(stats, plotfile)
     if not quiet:
         click.echo(stats.render())
@@ -165,7 +166,7 @@ def flagstats(ms, plotfile, outfile, fields, antennas, spws, scans, quiet):
 def delcol(ms, colnames, force):
     """Remove COLNAMES from MS (e.g. CORRECTED_DATA to reclaim disk)."""
     removed = _ms.delcol(ms, *colnames, force=force)
-    click.echo("removed: {0}".format(", ".join(removed) if removed else "(nothing)"))
+    click.echo("removed: {}".format(", ".join(removed) if removed else "(nothing)"))
 
 
 @cli.command()
@@ -175,7 +176,7 @@ def delcol(ms, colnames, force):
 def renamecol(ms, fromcol, tocol):
     """Rename column FROMCOL to TOCOL in MS."""
     _ms.renamecol(ms, fromcol, tocol)
-    click.echo("{0} -> {1}".format(fromcol, tocol))
+    click.echo(f"{fromcol} -> {tocol}")
 
 
 def _selection_options(command):
@@ -236,7 +237,7 @@ def average(ms, outms, time_bin, chan_bin, fields, spws, scans, antennas,
                  scans=list(scans) or None, antennas=list(antennas) or None,
                  datacolumn=datacolumn, overwrite=overwrite)
     except ImportError as exc:
-        raise click.ClickException(str(exc))
+        raise click.ClickException(str(exc)) from exc
     click.echo(outms)
 
 
@@ -256,7 +257,7 @@ def flags_backup(ms, name, description, overwrite):
 
     version = flag_backup(ms, name=name, description=description,
                           overwrite=overwrite)
-    click.echo("{0} ({1} rows)".format(version.name, version.nrows))
+    click.echo(f"{version.name} ({version.nrows} rows)")
 
 
 @flags.command("restore")
@@ -267,7 +268,7 @@ def flags_restore(ms, name):
     from .flags import flag_restore
 
     flag_restore(ms, name)
-    click.echo("restored {0}".format(name))
+    click.echo(f"restored {name}")
 
 
 @flags.command("list")
@@ -281,8 +282,7 @@ def flags_list(ms):
         click.echo("(no saved flag versions)")
         return
     for version in versions:
-        click.echo("{0:<24} {1:>10} rows  {2}".format(
-            version.name, version.nrows, version.description))
+        click.echo(f"{version.name:<24} {version.nrows:>10} rows  {version.description}")
 
 
 @flags.command("delete")
@@ -293,7 +293,7 @@ def flags_delete(ms, name):
     from .flags import flag_delete
 
     flag_delete(ms, name)
-    click.echo("deleted {0}".format(name))
+    click.echo(f"deleted {name}")
 
 
 @cli.command()
@@ -345,7 +345,7 @@ def taql(command, ms, as_json):
         click.echo("(no columns)")
         return
     for name, values in result.items():
-        click.echo("{0}: {1}".format(name, values))
+        click.echo(f"{name}: {values}")
 
 
 
@@ -371,7 +371,7 @@ def convert(ms, outpath, partitions, no_pointing, overwrite):
         info = to_msv4(ms, outpath, partition_scheme=list(partitions) or None,
                        with_pointing=not no_pointing, overwrite=overwrite)
     except ImportError as exc:
-        raise click.ClickException(str(exc))
+        raise click.ClickException(str(exc)) from exc
     click.echo(info.render())
 
 

@@ -20,31 +20,34 @@ from __future__ import annotations
 
 import datetime
 import math
-from dataclasses import dataclass, field as _field, fields as _fields
-from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple, Union
+from collections.abc import Iterator, Sequence
+from dataclasses import dataclass
+from dataclasses import field as _field
+from dataclasses import fields as _fields
+from typing import Any
 
-import numpy
+import numpy as np
 
 __all__ = [
+    "FREQ_FRAMES",
     "SCHEMA_VERSION",
     "STOKES_TYPES",
-    "FREQ_FRAMES",
-    "Registry",
     "Antenna",
-    "SpectralWindow",
-    "Polarization",
-    "DataDescription",
-    "Scan",
-    "Field",
-    "Observation",
     "Column",
+    "DataDescription",
+    "Field",
     "MSInfo",
-    "mjd_seconds_to_datetime",
-    "format_ra",
+    "Observation",
+    "Polarization",
+    "Registry",
+    "Scan",
+    "SpectralWindow",
     "format_dec",
     "format_duration",
-    "itrf_to_geodetic",
+    "format_ra",
     "geodetic_to_itrf",
+    "itrf_to_geodetic",
+    "mjd_seconds_to_datetime",
 ]
 
 #: Version of the JSON structure produced by :meth:`MSInfo.to_dict`. Bumped
@@ -72,7 +75,7 @@ FREQ_FRAMES = {
 # MJD zero point: 1858-11-17 00:00:00 UTC. MS TIME columns are seconds since
 # this epoch. Leap seconds are ignored, as they are throughout casacore's own
 # listobs-style output.
-_MJD0 = datetime.datetime(1858, 11, 17, tzinfo=datetime.timezone.utc)
+_MJD0 = datetime.datetime(1858, 11, 17, tzinfo=datetime.UTC)
 
 
 def mjd_seconds_to_datetime(seconds: float) -> datetime.datetime:
@@ -80,13 +83,13 @@ def mjd_seconds_to_datetime(seconds: float) -> datetime.datetime:
     return _MJD0 + datetime.timedelta(seconds=float(seconds))
 
 
-def _isot(seconds: Optional[float]) -> Optional[str]:
+def _isot(seconds: float | None) -> str | None:
     if seconds is None:
         return None
     return mjd_seconds_to_datetime(seconds).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3]
 
 
-def _sexagesimal(value: float, decimals: int) -> Tuple[int, int, float]:
+def _sexagesimal(value: float, decimals: int) -> tuple[int, int, float]:
     """Split ``value`` (hours or degrees) into whole/minutes/seconds.
 
     Rounds to the display precision *before* splitting. Doing it the other way
@@ -102,7 +105,7 @@ def _sexagesimal(value: float, decimals: int) -> Tuple[int, int, float]:
 def format_ra(radians: float) -> str:
     """Right ascension in radians -> ``HHhMMmSS.sss``."""
     hh, mm, ss = _sexagesimal(math.degrees(radians) / 15.0 % 24.0, 3)
-    return "{0:02d}h{1:02d}m{2:06.3f}".format(hh % 24, mm, ss)
+    return f"{hh % 24:02d}h{mm:02d}m{ss:06.3f}"
 
 
 def format_dec(radians: float) -> str:
@@ -110,19 +113,19 @@ def format_dec(radians: float) -> str:
     degrees = math.degrees(radians)
     sign = "-" if degrees < 0 else "+"
     dd, mm, ss = _sexagesimal(abs(degrees), 2)
-    return "{0}{1:02d}d{2:02d}m{3:05.2f}".format(sign, dd, mm, ss)
+    return f"{sign}{dd:02d}d{mm:02d}m{ss:05.2f}"
 
 
 def format_duration(seconds: float) -> str:
     """Seconds -> a compact ``1h23m45s`` style string."""
     seconds = float(seconds)
     if seconds < 60:
-        return "{0:.1f}s".format(seconds)
+        return f"{seconds:.1f}s"
     minutes, sec = divmod(seconds, 60)
     hours, minutes = divmod(int(minutes), 60)
     if hours:
-        return "{0:d}h{1:02d}m{2:02.0f}s".format(hours, minutes, sec)
-    return "{0:d}m{1:02.0f}s".format(minutes, sec)
+        return f"{hours:d}h{minutes:02d}m{sec:02.0f}s"
+    return f"{minutes:d}m{sec:02.0f}s"
 
 
 # WGS84 ellipsoid, as used for ITRF antenna positions.
@@ -132,7 +135,7 @@ _WGS84_B = _WGS84_A * (1.0 - _WGS84_F)
 _WGS84_E2 = 2.0 * _WGS84_F - _WGS84_F ** 2
 
 
-def itrf_to_geodetic(x: float, y: float, z: float) -> Tuple[float, float, float]:
+def itrf_to_geodetic(x: float, y: float, z: float) -> tuple[float, float, float]:
     """ITRF/ECEF metres -> (longitude, latitude, height) in radians, radians, metres.
 
     Uses Bowring's closed-form approximation, accurate to well under a
@@ -151,7 +154,7 @@ def itrf_to_geodetic(x: float, y: float, z: float) -> Tuple[float, float, float]
     return lon, lat, height
 
 
-def geodetic_to_itrf(lon: float, lat: float, height: float) -> Tuple[float, float, float]:
+def geodetic_to_itrf(lon: float, lat: float, height: float) -> tuple[float, float, float]:
     """(longitude, latitude, height) in radians/metres -> ITRF/ECEF metres."""
     n = _WGS84_A / math.sqrt(1.0 - _WGS84_E2 * math.sin(lat) ** 2)
     return ((n + height) * math.cos(lat) * math.cos(lon),
@@ -165,9 +168,9 @@ def _jsonify(value: Any) -> Any:
         return [_jsonify(item) for item in value]
     if hasattr(value, "to_dict") and callable(value.to_dict):
         return value.to_dict()
-    if isinstance(value, numpy.ndarray):
+    if isinstance(value, np.ndarray):
         return _jsonify(value.tolist())
-    if isinstance(value, numpy.generic):
+    if isinstance(value, np.generic):
         return value.item()
     if isinstance(value, dict):
         return {str(k): _jsonify(v) for k, v in value.items()}
@@ -182,9 +185,9 @@ class _Record:
     """Mixin giving dataclasses a JSON-safe ``to_dict`` including properties."""
 
     #: Property names to include in ``to_dict`` alongside the declared fields.
-    _derived: Tuple[str, ...] = ()
+    _derived: tuple[str, ...] = ()
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         out = {f.name: _jsonify(getattr(self, f.name)) for f in _fields(self)}
         for name in self._derived:
             out[name] = _jsonify(getattr(self, name))
@@ -211,20 +214,18 @@ class Registry(Sequence):
             if label:
                 self._by_name[str(label)] = item
 
-    def __getitem__(self, key: Union[int, str, slice]) -> Any:
+    def __getitem__(self, key: int | str | slice) -> Any:
         if isinstance(key, slice):
             return self._items[key]
         if isinstance(key, str):
             try:
                 return self._by_name[key]
             except KeyError:
-                raise KeyError("no entry named {0!r}; have {1}".format(
-                    key, sorted(self._by_name))) from None
+                raise KeyError(f"no entry named {key!r}; have {sorted(self._by_name)}") from None
         try:
             return self._by_id[key]
         except KeyError:
-            raise KeyError("no entry with {0}={1!r}; have {2}".format(
-                self._key, key, sorted(self._by_id))) from None
+            raise KeyError(f"no entry with {self._key}={key!r}; have {sorted(self._by_id)}") from None
 
     def __len__(self) -> int:
         return len(self._items)
@@ -233,19 +234,19 @@ class Registry(Sequence):
         return iter(self._items)
 
     def __repr__(self) -> str:
-        return "Registry({0!r})".format(self._items)
+        return f"Registry({self._items!r})"
 
     @property
-    def ids(self) -> List[Any]:
+    def ids(self) -> list[Any]:
         """The id of every record, in order."""
         return [getattr(i, self._key) for i in self._items]
 
     @property
-    def names(self) -> List[str]:
+    def names(self) -> list[str]:
         """The name of every record, in order."""
         return [getattr(i, self._name, None) for i in self._items]
 
-    def to_dict(self) -> List[Dict[str, Any]]:
+    def to_dict(self) -> list[dict[str, Any]]:
         return [i.to_dict() for i in self._items]
 
 
@@ -259,13 +260,13 @@ class Antenna(_Record):
     mount: str = ""
     type: str = ""
     dish_diameter: float = 0.0
-    position: Tuple[float, float, float] = (0.0, 0.0, 0.0)
+    position: tuple[float, float, float] = (0.0, 0.0, 0.0)
     flagged: bool = False
 
     _derived = ("longitude", "latitude", "elevation")
 
     @property
-    def _geodetic(self) -> Tuple[float, float, float]:
+    def _geodetic(self) -> tuple[float, float, float]:
         return itrf_to_geodetic(*self.position)
 
     @property
@@ -291,8 +292,8 @@ class SpectralWindow(_Record):
     id: int
     name: str = ""
     num_chan: int = 0
-    chan_freq: List[float] = _field(default_factory=list)
-    chan_width: List[float] = _field(default_factory=list)
+    chan_freq: list[float] = _field(default_factory=list)
+    chan_width: list[float] = _field(default_factory=list)
     ref_frequency: float = 0.0
     total_bandwidth: float = 0.0
     meas_freq_ref: int = 0
@@ -306,21 +307,21 @@ class SpectralWindow(_Record):
         return FREQ_FRAMES.get(int(self.meas_freq_ref), "Unknown")
 
     @property
-    def freq_start(self) -> Optional[float]:
+    def freq_start(self) -> float | None:
         """Lower edge of the first channel, in Hz."""
         if not len(self.chan_freq):
             return None
         return float(self.chan_freq[0]) - abs(float(self.chan_width[0])) / 2.0
 
     @property
-    def freq_end(self) -> Optional[float]:
+    def freq_end(self) -> float | None:
         """Upper edge of the last channel, in Hz."""
         if not len(self.chan_freq):
             return None
         return float(self.chan_freq[-1]) + abs(float(self.chan_width[-1])) / 2.0
 
     @property
-    def centre_freq(self) -> Optional[float]:
+    def centre_freq(self) -> float | None:
         """Midpoint of the band, in Hz."""
         if not len(self.chan_freq):
             return None
@@ -333,12 +334,12 @@ class Polarization(_Record):
 
     id: int
     num_corr: int = 0
-    corr_type: List[int] = _field(default_factory=list)
+    corr_type: list[int] = _field(default_factory=list)
 
     _derived = ("corr_labels", "name")
 
     @property
-    def corr_labels(self) -> List[str]:
+    def corr_labels(self) -> list[str]:
         """Correlation codes decoded to labels, e.g. ``["XX", "XY", ...]``."""
         return [STOKES_TYPES.get(int(c), "Unknown") for c in self.corr_type]
 
@@ -366,7 +367,7 @@ class DataDescription(_Record):
 
     @property
     def name(self) -> str:
-        return "DD{0:d}".format(self.id)
+        return f"DD{self.id:d}"
 
 
 @dataclass
@@ -376,12 +377,12 @@ class Scan(_Record):
     number: int
     field_id: int
     field_name: str = ""
-    spw_ids: List[int] = _field(default_factory=list)
+    spw_ids: list[int] = _field(default_factory=list)
     time_start: float = 0.0
     time_end: float = 0.0
     interval: float = 0.0
     nrows: int = 0
-    intents: List[str] = _field(default_factory=list)
+    intents: list[str] = _field(default_factory=list)
 
     _derived = ("name", "duration", "start_utc", "end_utc")
 
@@ -399,11 +400,11 @@ class Scan(_Record):
         return float(self.time_end - self.time_start) + float(self.interval)
 
     @property
-    def start_utc(self) -> Optional[str]:
+    def start_utc(self) -> str | None:
         return _isot(self.time_start)
 
     @property
-    def end_utc(self) -> Optional[str]:
+    def end_utc(self) -> str | None:
         return _isot(self.time_end)
 
 
@@ -415,14 +416,14 @@ class Field(_Record):
     name: str
     code: str = ""
     source_id: int = -1
-    phase_centre: Tuple[float, float] = (0.0, 0.0)
+    phase_centre: tuple[float, float] = (0.0, 0.0)
     ref_frame: str = "J2000"
-    intents: List[str] = _field(default_factory=list)
-    scan_numbers: List[int] = _field(default_factory=list)
-    spw_ids: List[int] = _field(default_factory=list)
+    intents: list[str] = _field(default_factory=list)
+    scan_numbers: list[int] = _field(default_factory=list)
+    spw_ids: list[int] = _field(default_factory=list)
     nrows: int = 0
-    time_start: Optional[float] = None
-    time_end: Optional[float] = None
+    time_start: float | None = None
+    time_end: float | None = None
     exposure: float = 0.0
 
     _derived = ("ra", "dec", "ra_hms", "dec_dms", "nscans", "start_utc", "end_utc")
@@ -450,11 +451,11 @@ class Field(_Record):
         return len(self.scan_numbers)
 
     @property
-    def start_utc(self) -> Optional[str]:
+    def start_utc(self) -> str | None:
         return _isot(self.time_start)
 
     @property
-    def end_utc(self) -> Optional[str]:
+    def end_utc(self) -> str | None:
         return _isot(self.time_end)
 
 
@@ -465,21 +466,21 @@ class Observation(_Record):
     telescope: str = ""
     observer: str = ""
     project: str = ""
-    time_start: Optional[float] = None
-    time_end: Optional[float] = None
+    time_start: float | None = None
+    time_end: float | None = None
 
     _derived = ("start_utc", "end_utc", "duration")
 
     @property
-    def start_utc(self) -> Optional[str]:
+    def start_utc(self) -> str | None:
         return _isot(self.time_start)
 
     @property
-    def end_utc(self) -> Optional[str]:
+    def end_utc(self) -> str | None:
         return _isot(self.time_end)
 
     @property
-    def duration(self) -> Optional[float]:
+    def duration(self) -> float | None:
         """Wall-clock span of the observation in seconds."""
         if self.time_start is None or self.time_end is None:
             return None
@@ -499,10 +500,10 @@ class Column(_Record):
     name: str
     dtype: str = ""
     ndim: int = 0
-    shape: Optional[List[int]] = None
+    shape: list[int] | None = None
     unit: str = ""
     data_manager: str = ""
-    nbytes: Optional[int] = None
+    nbytes: int | None = None
 
     _derived = ("is_scalar", "shape_label")
 
@@ -516,7 +517,7 @@ class Column(_Record):
         if self.shape:
             return "x".join(str(s) for s in self.shape)
         if self.ndim:
-            return "{0:d}-D (variable)".format(self.ndim)
+            return f"{self.ndim:d}-D (variable)"
         return "scalar"
 
 
@@ -528,7 +529,7 @@ class MSInfo(_Record):
     format: str = "MSv2"
     engine: str = "casacore"
     nrows: int = 0
-    size_bytes: Optional[int] = None
+    size_bytes: int | None = None
     observation: Observation = _field(default_factory=Observation)
     antennas: Registry = _field(default_factory=lambda: Registry([]))
     fields: Registry = _field(default_factory=lambda: Registry([]))
@@ -537,15 +538,15 @@ class MSInfo(_Record):
     data_descriptions: Registry = _field(default_factory=lambda: Registry([]))
     scans: Registry = _field(default_factory=lambda: Registry([], key="number"))
     columns: Registry = _field(default_factory=lambda: Registry([], key="name"))
-    subtables: List[str] = _field(default_factory=list)
-    time_start: Optional[float] = None
-    time_end: Optional[float] = None
+    subtables: list[str] = _field(default_factory=list)
+    time_start: float | None = None
+    time_end: float | None = None
     nbaselines: int = 0
-    max_baseline: Optional[float] = None
-    max_uv_distance: Optional[float] = None
-    integration_times: List[float] = _field(default_factory=list)
-    nflagged: Optional[int] = None
-    nvisibilities: Optional[int] = None
+    max_baseline: float | None = None
+    max_uv_distance: float | None = None
+    integration_times: list[float] = _field(default_factory=list)
+    nflagged: int | None = None
+    nvisibilities: int | None = None
     schema_version: str = SCHEMA_VERSION
 
     _derived = ("nantennas", "nfields", "nspws", "nscans", "nchan_total",
@@ -553,17 +554,17 @@ class MSInfo(_Record):
                 "duration")
 
     @property
-    def start_utc(self) -> Optional[str]:
+    def start_utc(self) -> str | None:
         """First timestamp actually present in the data."""
         return _isot(self.time_start)
 
     @property
-    def end_utc(self) -> Optional[str]:
+    def end_utc(self) -> str | None:
         """Last timestamp actually present in the data."""
         return _isot(self.time_end)
 
     @property
-    def duration(self) -> Optional[float]:
+    def duration(self) -> float | None:
         """Elapsed time spanned by the data, in seconds.
 
         Taken from the scans rather than ``OBSERVATION::TIME_RANGE``, which is
@@ -595,11 +596,11 @@ class MSInfo(_Record):
         return int(sum(s.num_chan for s in self.spws))
 
     @property
-    def column_names(self) -> List[str]:
+    def column_names(self) -> list[str]:
         return [c.name for c in self.columns]
 
     @property
-    def flagged_fraction(self) -> Optional[float]:
+    def flagged_fraction(self) -> float | None:
         """Fraction of visibilities flagged, or ``None`` if not computed."""
         if self.nflagged is None or not self.nvisibilities:
             return None
@@ -610,12 +611,12 @@ class MSInfo(_Record):
         from ._render import render
         return render(self, verbose=verbose)
 
-    def to_json(self, indent: Optional[int] = 2) -> str:
+    def to_json(self, indent: int | None = 2) -> str:
         """Serialise to a JSON string."""
         import json
         return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
 
-    def save(self, path: str, indent: Optional[int] = 2) -> str:
+    def save(self, path: str, indent: int | None = 2) -> str:
         """Write :meth:`to_json` to ``path`` and return the path."""
         with open(path, "w", encoding="utf-8") as stream:
             stream.write(self.to_json(indent=indent))

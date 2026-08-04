@@ -8,10 +8,8 @@ import pytest
 
 import msutils
 from msutils.diagnostics import check, du, taql
-from msutils.flags import (flag_backup, flag_delete, flag_restore,
-                           flag_versions)
+from msutils.flags import flag_backup, flag_delete, flag_restore, flag_versions
 from msutils.subset import subset
-
 
 # --------------------------------------------------------------------------
 # delcol / renamecol
@@ -109,7 +107,7 @@ def test_subset_by_scan_and_antenna(ms, tmp_path):
     info = msutils.msinfo(out)
     assert info.nscans == 1
     pairs = taql("SELECT DISTINCT ANTENNA1, ANTENNA2 FROM $1", out)
-    assert all(0 in (a, b) for a, b in zip(pairs["ANTENNA1"], pairs["ANTENNA2"]))
+    assert all(0 in (a, b) for a, b in zip(pairs["ANTENNA1"], pairs["ANTENNA2"], strict=True))
 
 
 def test_subset_with_extra_taql(ms, tmp_path):

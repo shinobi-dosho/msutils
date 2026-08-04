@@ -16,10 +16,12 @@ only the optional matplotlib plot remains behind the ``plots`` extra.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field as _field
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from collections.abc import Sequence
+from dataclasses import dataclass
+from dataclasses import field as _field
+from typing import Any
 
-import numpy
+import numpy as np
 
 from ._log import create_logger
 from ._tables import open_table, query
@@ -27,11 +29,11 @@ from .info import msinfo
 from .info._model import Registry, _Record
 
 __all__ = [
-    "flagstats",
-    "FlagStats",
     "FlagCount",
-    "save_statistics",
+    "FlagStats",
+    "flagstats",
     "plot_statistics",
+    "save_statistics",
 ]
 
 LOGGER = create_logger(__name__)
@@ -60,7 +62,7 @@ class FlagCount(_Record):
     def percent(self) -> float:
         return self.fraction * 100.0
 
-    def __iadd__(self, other: "FlagCount") -> "FlagCount":
+    def __iadd__(self, other: FlagCount) -> FlagCount:
         self.flagged += other.flagged
         self.total += other.total
         return self
@@ -78,17 +80,17 @@ class FlagStats(_Record):
     by_baseline: Registry = _field(default_factory=lambda: Registry([]))
     by_spw: Registry = _field(default_factory=lambda: Registry([]))
     by_correlation: Registry = _field(default_factory=lambda: Registry([]))
-    by_channel: Dict[int, List[FlagCount]] = _field(default_factory=dict)
+    by_channel: dict[int, list[FlagCount]] = _field(default_factory=dict)
 
     def render(self) -> str:
         """A plain-text report of the flag percentages."""
         from ._flagrender import render_flagstats
         return render_flagstats(self)
 
-    def to_json(self, indent: Optional[int] = 2) -> str:
+    def to_json(self, indent: int | None = 2) -> str:
         return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
 
-    def save(self, path: str, indent: Optional[int] = 2) -> str:
+    def save(self, path: str, indent: int | None = 2) -> str:
         with open(path, "w", encoding="utf-8") as stream:
             stream.write(self.to_json(indent=indent))
         LOGGER.info("Wrote flag statistics to %s", path)
@@ -99,11 +101,11 @@ class FlagStats(_Record):
 
 
 def flagstats(msname: str,
-              fields: Optional[Sequence] = None,
-              spws: Optional[Sequence] = None,
-              antennas: Optional[Sequence] = None,
-              scans: Optional[Sequence] = None,
-              outfile: Optional[str] = None) -> FlagStats:
+              fields: Sequence | None = None,
+              spws: Sequence | None = None,
+              antennas: Sequence | None = None,
+              scans: Sequence | None = None,
+              outfile: str | None = None) -> FlagStats:
     """Compute flag statistics for ``msname``.
 
     Args:
@@ -133,13 +135,13 @@ def flagstats(msname: str,
         raise ValueError("no DATA_DESC_IDs match the requested spectral windows")
 
     stats = FlagStats(path=info.path)
-    per_field: Dict[int, FlagCount] = {}
-    per_scan: Dict[int, FlagCount] = {}
-    per_baseline: Dict[Tuple[int, int], FlagCount] = {}
-    per_antenna: Dict[int, FlagCount] = {}
-    per_spw: Dict[int, FlagCount] = {}
-    per_corr: Dict[int, FlagCount] = {}
-    per_channel: Dict[int, List[FlagCount]] = {}
+    per_field: dict[int, FlagCount] = {}
+    per_scan: dict[int, FlagCount] = {}
+    per_baseline: dict[tuple[int, int], FlagCount] = {}
+    per_antenna: dict[int, FlagCount] = {}
+    per_spw: dict[int, FlagCount] = {}
+    per_corr: dict[int, FlagCount] = {}
+    per_channel: dict[int, list[FlagCount]] = {}
 
     with open_table(msname) as tab:
         for ddid in ddids:
@@ -180,8 +182,7 @@ def flagstats(msname: str,
                     total = int(bnrows[i]) * nchan * ncorr
                     count = int(bflagged[i].sum())
                     _bump(per_baseline, (p, q),
-                          "{0}-{1}".format(_name(info.antennas, p),
-                                           _name(info.antennas, q)),
+                          f"{_name(info.antennas, p)}-{_name(info.antennas, q)}",
                           count, total)
                     # A baseline contributes to both of its antennas.
                     for antenna in (p, q):
@@ -225,7 +226,7 @@ def flagstats(msname: str,
 # TaQL
 
 def _axis_counts(tab, group_by: str, where: str,
-                 keys: Sequence[str] = ()) -> Optional[Tuple]:
+                 keys: Sequence[str] = ()) -> tuple | None:
     """``GROUPBY group_by`` -> (key tuples, (n, nchan, ncorr) counts, row counts).
 
     ``GNTRUES`` gives the per-element flag count for each group, which is what
@@ -233,35 +234,35 @@ def _axis_counts(tab, group_by: str, where: str,
     group total.
     """
     key_names = list(keys) or [group_by]
-    command = ("SELECT {0}, GNTRUES(FLAG) AS NFLAG, GCOUNT() AS NROW "
-               "FROM $1 {1} GROUPBY {0}".format(group_by, where))
+    command = (f"SELECT {group_by}, GNTRUES(FLAG) AS NFLAG, GCOUNT() AS NROW "
+               f"FROM $1 {where} GROUPBY {group_by}")
     LOGGER.debug("flag stats: %s", command)
     with query(command, [tab]) as res:
         if res.nrows() == 0:
             return None
-        flagged = numpy.asarray(res.getcol("NFLAG"))
-        nrows = numpy.asarray(res.getcol("NROW"))
-        key_columns = [numpy.asarray(res.getcol(name)) for name in key_names]
-        return list(zip(*key_columns)), flagged, nrows
+        flagged = np.asarray(res.getcol("NFLAG"))
+        nrows = np.asarray(res.getcol("NROW"))
+        key_columns = [np.asarray(res.getcol(name)) for name in key_names]
+        return list(zip(*key_columns, strict=False)), flagged, nrows
 
 
 def _where(ddid: int, field_ids, antenna_ids, scan_ids) -> str:
     """Build the WHERE clause for one DATA_DESC_ID plus the user's selection."""
-    clauses = ["DATA_DESC_ID=={0:d}".format(ddid)]
+    clauses = [f"DATA_DESC_ID=={ddid:d}"]
     if field_ids:
-        clauses.append("FIELD_ID IN [{0}]".format(",".join(map(str, field_ids))))
+        clauses.append("FIELD_ID IN [{}]".format(",".join(map(str, field_ids))))
     if scan_ids:
-        clauses.append("SCAN_NUMBER IN [{0}]".format(",".join(map(str, scan_ids))))
+        clauses.append("SCAN_NUMBER IN [{}]".format(",".join(map(str, scan_ids))))
     if antenna_ids:
         listed = ",".join(map(str, antenna_ids))
-        clauses.append("(ANTENNA1 IN [{0}] OR ANTENNA2 IN [{0}])".format(listed))
+        clauses.append(f"(ANTENNA1 IN [{listed}] OR ANTENNA2 IN [{listed}])")
     return "WHERE " + " AND ".join(clauses)
 
 
 # --------------------------------------------------------------------------
 # helpers
 
-def _resolve(selection, registry, label: str) -> Optional[List[int]]:
+def _resolve(selection, registry, label: str) -> list[int] | None:
     """Map a mixed list of ids and names to ids, via the MSInfo registry."""
     if not selection:
         return None
@@ -271,13 +272,11 @@ def _resolve(selection, registry, label: str) -> Optional[List[int]]:
             try:
                 resolved.append(registry[item].id)
             except KeyError:
-                raise ValueError("unknown {0} {1!r}; have {2}".format(
-                    label, item, registry.names)) from None
+                raise ValueError(f"unknown {label} {item!r}; have {registry.names}") from None
         else:
             ident = int(item)
             if ident not in registry.ids:
-                raise ValueError("unknown {0} id {1}; have {2}".format(
-                    label, ident, registry.ids))
+                raise ValueError(f"unknown {label} id {ident}; have {registry.ids}")
             resolved.append(ident)
     return resolved
 
@@ -289,7 +288,7 @@ def _name(registry, ident: int) -> str:
         return str(ident)
 
 
-def _bump(store: Dict, key, name: str, flagged, total) -> None:
+def _bump(store: dict, key, name: str, flagged, total) -> None:
     entry = store.get(key)
     if entry is None:
         store[key] = FlagCount(id=key, name=name, flagged=int(flagged),
@@ -299,16 +298,16 @@ def _bump(store: Dict, key, name: str, flagged, total) -> None:
         entry.total += int(total)
 
 
-def _accumulate(store: Dict, ident: int, registry, flagged, total) -> None:
+def _accumulate(store: dict, ident: int, registry, flagged, total) -> None:
     _bump(store, ident, _name(registry, ident),
-          int(numpy.sum(flagged)), int(total))
+          int(np.sum(flagged)), int(total))
 
 
-def _sorted(store: Dict) -> List[FlagCount]:
+def _sorted(store: dict) -> list[FlagCount]:
     return [store[k] for k in sorted(store)]
 
 
-def _corr_labels(info, ddid: int) -> List[str]:
+def _corr_labels(info, ddid: int) -> list[str]:
     """Correlation labels for the polarization setup behind a DATA_DESC_ID."""
     try:
         pol_id = info.data_descriptions[ddid].pol_id
@@ -321,7 +320,7 @@ def _corr_labels(info, ddid: int) -> List[str]:
 # public entry points kept from 2.x
 
 def save_statistics(msname: str, antennas=None, fields=None,
-                    outfile: Optional[str] = None, **kwargs) -> FlagStats:
+                    outfile: str | None = None, **kwargs) -> FlagStats:
     """Compute flag statistics and write them to JSON.
 
     Returns a :class:`FlagStats` rather than the old nested dict. The JSON
@@ -335,8 +334,8 @@ def save_statistics(msname: str, antennas=None, fields=None,
 
 
 def plot_statistics(msname: str, antennas=None, fields=None,
-                    plotfile: Optional[str] = None,
-                    outfile: Optional[str] = None, **kwargs) -> FlagStats:
+                    plotfile: str | None = None,
+                    outfile: str | None = None, **kwargs) -> FlagStats:
     """Compute flag statistics, write a PNG summary and optionally JSON.
 
     Needs the ``plots`` extra for matplotlib.

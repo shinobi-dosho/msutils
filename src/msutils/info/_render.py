@@ -6,38 +6,39 @@ consumers should use :meth:`MSInfo.to_dict` instead of parsing this.
 """
 from __future__ import annotations
 
-from typing import Any, List, Optional, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 from ._model import MSInfo, format_duration
 
-__all__ = ["render", "format_bytes", "format_frequency"]
+__all__ = ["format_bytes", "format_frequency", "render"]
 
 
-def format_bytes(nbytes: Optional[float]) -> str:
+def format_bytes(nbytes: float | None) -> str:
     """Bytes -> a human-readable binary size, e.g. ``271.4 MiB``."""
     if nbytes is None:
         return "-"
     value = float(nbytes)
     for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
         if abs(value) < 1024.0 or unit == "TiB":
-            return "{0:.1f} {1}".format(value, unit) if unit != "B" else "{0:.0f} B".format(value)
+            return f"{value:.1f} {unit}" if unit != "B" else f"{value:.0f} B"
         value /= 1024.0
-    return "{0:.1f} TiB".format(value)         # pragma: no cover - unreachable
+    return f"{value:.1f} TiB"         # pragma: no cover - unreachable
 
 
-def format_frequency(hz: Optional[float]) -> str:
+def format_frequency(hz: float | None) -> str:
     """Hz -> a readable frequency with an appropriate unit."""
     if hz is None:
         return "-"
     value = abs(float(hz))
     for scale, unit in ((1e9, "GHz"), (1e6, "MHz"), (1e3, "kHz")):
         if value >= scale:
-            return "{0:.6g} {1}".format(float(hz) / scale, unit)
-    return "{0:.6g} Hz".format(float(hz))
+            return f"{float(hz) / scale:.6g} {unit}"
+    return f"{float(hz):.6g} Hz"
 
 
 def _table(headers: Sequence[str], rows: Sequence[Sequence[Any]],
-           indent: str = "  ") -> List[str]:
+           indent: str = "  ") -> list[str]:
     """Lay out rows as an aligned text table; numeric-ish columns right-align."""
     if not rows:
         return [indent + "(none)"]
@@ -82,22 +83,21 @@ def _shorten(intents: Sequence[str], limit: int = 2) -> str:
             short.append(base)
     if len(short) <= limit:
         return ",".join(short)
-    return "{0},+{1} more".format(",".join(short[:limit]), len(short) - limit)
+    return "{},+{} more".format(",".join(short[:limit]), len(short) - limit)
 
 
 def render(info: MSInfo, verbose: bool = False) -> str:
     """Build the report. ``verbose`` adds per-scan, per-antenna and column tables."""
-    out: List[str] = []
+    out: list[str] = []
     obs = info.observation
 
-    out.append("Measurement Set: {0}".format(info.path))
-    engine = "" if info.engine == "casacore" else "  (via {0})".format(info.engine)
-    out.append("  format      : {0}{1}    size: {2}    rows: {3:,}".format(
-        info.format, engine, format_bytes(info.size_bytes), info.nrows))
-    out.append("  telescope   : {0:<12} observer: {1:<16} project: {2}".format(
+    out.append(f"Measurement Set: {info.path}")
+    engine = "" if info.engine == "casacore" else f"  (via {info.engine})"
+    out.append(f"  format      : {info.format}{engine}    size: {format_bytes(info.size_bytes)}    rows: {info.nrows:,}")
+    out.append("  telescope   : {:<12} observer: {:<16} project: {}".format(
         obs.telescope or "-", obs.observer or "-", obs.project or "-"))
     if info.start_utc:
-        out.append("  observed    : {0} -> {1}  ({2})".format(
+        out.append("  observed    : {} -> {}  ({})".format(
             info.start_utc, info.end_utc,
             format_duration(info.duration) if info.duration else "-"))
         # OBSERVATION::TIME_RANGE is frequently stale; only worth showing when
@@ -105,34 +105,32 @@ def render(info: MSInfo, verbose: bool = False) -> str:
         if verbose and obs.time_start is not None and (
                 abs((obs.time_start or 0) - info.time_start) > 1.0
                 or abs((obs.time_end or 0) - info.time_end) > 1.0):
-            out.append("  (OBSERVATION::TIME_RANGE says {0} -> {1})".format(
-                obs.start_utc, obs.end_utc))
-    summary = "  totals      : {0} antennas, {1} baselines, {2} fields, {3} scans, {4} SPWs, {5} channels".format(
+            out.append(f"  (OBSERVATION::TIME_RANGE says {obs.start_utc} -> {obs.end_utc})")
+    summary = "  totals      : {} antennas, {} baselines, {} fields, {} scans, {} SPWs, {} channels".format(
         info.nantennas, info.nbaselines or "?", info.nfields, info.nscans,
         info.nspws, info.nchan_total)
     out.append(summary)
     if info.integration_times:
-        out.append("  integration : {0}".format(
-            ", ".join("{0:g}s".format(t) for t in info.integration_times)))
+        out.append("  integration : {}".format(
+            ", ".join(f"{t:g}s" for t in info.integration_times)))
     if info.max_baseline is not None:
-        line = "  max baseline: {0:,.1f} m".format(info.max_baseline)
+        line = f"  max baseline: {info.max_baseline:,.1f} m"
         if info.max_uv_distance is not None:
-            line += "   (max uv distance {0:,.1f} m)".format(info.max_uv_distance)
+            line += f"   (max uv distance {info.max_uv_distance:,.1f} m)"
         out.append(line)
     if info.flagged_fraction is not None:
-        out.append("  flagged     : {0:.2f}% of {1:,} visibilities".format(
-            info.flagged_fraction * 100.0, info.nvisibilities))
+        out.append(f"  flagged     : {info.flagged_fraction * 100.0:.2f}% of {info.nvisibilities:,} visibilities")
 
     out.append("")
-    out.append("Fields ({0}):".format(info.nfields))
+    out.append(f"Fields ({info.nfields}):")
     out.extend(_table(
         ["ID", "Name", "RA", "Dec", "Frame", "Intents", "Scans", "Rows"],
         [[f.id, f.name, f.ra_hms, f.dec_dms, f.ref_frame, _shorten(f.intents),
-          f.nscans or "-", "{0:,}".format(f.nrows) if f.nrows else "-"]
+          f.nscans or "-", f"{f.nrows:,}" if f.nrows else "-"]
          for f in info.fields]))
 
     out.append("")
-    out.append("Spectral windows ({0}):".format(info.nspws))
+    out.append(f"Spectral windows ({info.nspws}):")
     out.extend(_table(
         ["ID", "Name", "#Chan", "Frame", "Centre", "Bandwidth", "Chan width"],
         [[s.id, s.name or "-", s.num_chan, s.frame,
@@ -141,39 +139,39 @@ def render(info: MSInfo, verbose: bool = False) -> str:
          for s in info.spws]))
 
     out.append("")
-    out.append("Polarization setups ({0}):".format(len(info.polarizations)))
+    out.append(f"Polarization setups ({len(info.polarizations)}):")
     out.extend(_table(
         ["ID", "#Corr", "Correlations"],
         [[p.id, p.num_corr, ",".join(p.corr_labels)] for p in info.polarizations]))
 
     if verbose or _nontrivial_ddid(info):
         out.append("")
-        out.append("Data descriptions ({0}):".format(len(info.data_descriptions)))
+        out.append(f"Data descriptions ({len(info.data_descriptions)}):")
         out.extend(_table(
             ["DDID", "SPW", "Pol"],
             [[d.id, d.spw_id, d.pol_id] for d in info.data_descriptions]))
 
     if verbose:
         out.append("")
-        out.append("Scans ({0}):".format(info.nscans))
+        out.append(f"Scans ({info.nscans}):")
         out.extend(_table(
             ["Scan", "Field", "Start (UTC)", "Duration", "SPWs", "Rows", "Intents"],
             [[s.number, s.field_name or s.field_id, s.start_utc,
               format_duration(s.duration),
-              ",".join(str(i) for i in s.spw_ids), "{0:,}".format(s.nrows),
+              ",".join(str(i) for i in s.spw_ids), f"{s.nrows:,}",
               _shorten(s.intents)] for s in info.scans]))
 
         out.append("")
-        out.append("Antennas ({0}):".format(info.nantennas))
+        out.append(f"Antennas ({info.nantennas}):")
         out.extend(_table(
             ["ID", "Name", "Station", "Mount", "Diameter", "Longitude", "Latitude", "Elevation"],
             [[a.id, a.name, a.station or "-", a.mount or "-",
-              "{0:.1f} m".format(a.dish_diameter),
-              "{0:.5f}".format(a.longitude), "{0:.5f}".format(a.latitude),
-              "{0:.1f} m".format(a.elevation)] for a in info.antennas]))
+              f"{a.dish_diameter:.1f} m",
+              f"{a.longitude:.5f}", f"{a.latitude:.5f}",
+              f"{a.elevation:.1f} m"] for a in info.antennas]))
 
         out.append("")
-        out.append("Columns ({0}):".format(len(info.columns)))
+        out.append(f"Columns ({len(info.columns)}):")
         out.extend(_table(
             ["Name", "Type", "Shape", "Unit", "Manager", "Size"],
             [[c.name, c.dtype, c.shape_label, c.unit or "-",
@@ -181,7 +179,7 @@ def render(info: MSInfo, verbose: bool = False) -> str:
              for c in info.columns]))
     else:
         out.append("")
-        out.append("Columns ({0}): {1}".format(
+        out.append("Columns ({}): {}".format(
             len(info.columns), ", ".join(info.column_names)))
 
     return "\n".join(out)

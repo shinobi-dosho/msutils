@@ -15,12 +15,13 @@ instead of one Python-level pass per field/scan/antenna.
 """
 from __future__ import annotations
 
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
-from typing import Any, Iterator, List, Optional, Sequence
+from typing import Any
 
 from casacore.tables import table, taql
 
-__all__ = ["open_table", "closing_table", "query", "table_exists", "subtable_names"]
+__all__ = ["closing_table", "open_table", "query", "subtable_names", "table_exists"]
 
 
 @contextmanager
@@ -51,7 +52,7 @@ def closing_table(tab: table) -> Iterator[table]:
 
 
 @contextmanager
-def query(command: str, tables: Optional[Sequence[table]] = None,
+def query(command: str, tables: Sequence[table] | None = None,
           **kwargs: Any) -> Iterator[table]:
     """Run a TaQL command, yielding the result table and closing it on exit.
 
@@ -80,7 +81,7 @@ def table_exists(name: str) -> bool:
         return False
 
 
-def subtable_names(tab: table) -> List[str]:
+def subtable_names(tab: table) -> list[str]:
     """Names of the subtables attached to ``tab`` as table keywords."""
     return sorted(k for k in tab.keywordnames()
                   if isinstance(tab.getkeyword(k), str)
