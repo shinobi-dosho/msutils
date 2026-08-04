@@ -7,13 +7,14 @@ unix time to MJD and synthesising the DATA_DESCRIPTION indirection MSv4 lacks
 -- and it must do that identically whether the tree came from stored zarr,
 from xradio, or from xarray-ms viewing a plain MSv2.
 """
+
 import pytest
 
 import msutils
 
 xradio = pytest.importorskip(
-    "xradio.measurement_set",
-    reason="xradio not installed (msutils[convert])")
+    "xradio.measurement_set", reason="xradio not installed (msutils[convert])"
+)
 
 
 @pytest.fixture(scope="module")
@@ -39,8 +40,10 @@ def v2(base_ms):
 # --------------------------------------------------------------------------
 # conversion
 
+
 def test_convert_produces_a_processing_set(processing_set):
     import os
+
     assert os.path.isdir(processing_set)
     assert msutils.detect_format(processing_set) == "MSv4"
 
@@ -66,18 +69,30 @@ def test_convert_rejects_unknown_partition_key(base_ms, tmp_path):
     from msutils.convert import to_msv4
 
     with pytest.raises(ValueError, match="unknown partition key"):
-        to_msv4(base_ms, str(tmp_path / "x.zarr"),
-                partition_scheme=["NOT_A_COLUMN"])
+        to_msv4(base_ms, str(tmp_path / "x.zarr"), partition_scheme=["NOT_A_COLUMN"])
 
 
 # --------------------------------------------------------------------------
 # the two formats must agree
 
-@pytest.mark.parametrize("attribute", [
-    "nrows", "nantennas", "nfields", "nspws", "nscans", "nchan_total",
-    "nbaselines", "nvisibilities", "nflagged", "start_utc", "end_utc",
-    "integration_times",
-])
+
+@pytest.mark.parametrize(
+    "attribute",
+    [
+        "nrows",
+        "nantennas",
+        "nfields",
+        "nspws",
+        "nscans",
+        "nchan_total",
+        "nbaselines",
+        "nvisibilities",
+        "nflagged",
+        "start_utc",
+        "end_utc",
+        "integration_times",
+    ],
+)
 def test_formats_agree(v2, v4, attribute):
     assert getattr(v4, attribute) == getattr(v2, attribute)
 
@@ -136,6 +151,7 @@ def test_spw_frequencies_match(v2, v4):
 # --------------------------------------------------------------------------
 # MSv4-specific behaviour
 
+
 def test_names_keep_xradios_disambiguating_suffix(v4):
     """xradio appends an index to field and SPW names; kept verbatim."""
     assert v4.fields[0].name.startswith("PKS1934-638")
@@ -153,13 +169,13 @@ def test_data_descriptions_are_synthesised(v4):
 def test_msv4_has_no_columns(v4):
     """MSv4 stores data variables, not casacore columns."""
     assert v4.column_names == []
-    assert v4.subtables                        # the partitions are listed here
+    assert v4.subtables  # the partitions are listed here
 
 
 def test_meta_level_skips_the_data(processing_set):
     info = msutils.msinfo(processing_set, level="meta")
-    assert info.nfields == 0 and info.nscans == 0    # needs the coords
-    assert info.nantennas == 4                       # antenna_xds is cheap
+    assert info.nfields == 0 and info.nscans == 0  # needs the coords
+    assert info.nantennas == 4  # antenna_xds is cheap
     assert info.nflagged is None
 
 
@@ -167,6 +183,7 @@ def test_render_and_json(v4):
     text = v4.render(verbose=True)
     assert "MSv4" in text and "MEERKAT" in text
     import json
+
     payload = json.loads(v4.to_json())
     assert payload["format"] == "MSv4"
     assert payload["schema_version"]
@@ -183,6 +200,7 @@ def test_msv2_detection_still_works(base_ms):
 
 # --------------------------------------------------------------------------
 # engines
+
 
 def test_zarr_engine_needs_no_xradio(processing_set, monkeypatch):
     """Reading a stored processing set must work on plain xarray + zarr.
@@ -218,8 +236,7 @@ def test_explicit_xradio_engine(processing_set):
 def test_zarr_and_xradio_engines_agree(processing_set):
     a = msutils.msinfo(processing_set, engine="zarr", level="data")
     b = msutils.msinfo(processing_set, engine="xradio", level="data")
-    for attribute in ("nrows", "nfields", "nspws", "nscans", "nflagged",
-                      "start_utc", "nantennas"):
+    for attribute in ("nrows", "nfields", "nspws", "nscans", "nflagged", "start_utc", "nantennas"):
         assert getattr(a, attribute) == getattr(b, attribute), attribute
 
 
@@ -231,10 +248,10 @@ def test_unknown_engine_rejected(processing_set):
 # --------------------------------------------------------------------------
 # xarray-ms: an MSv2 read through the MSv4 schema, without converting it
 
+
 @pytest.fixture
 def xarray_ms():
-    return pytest.importorskip(
-        "xarray_ms", reason="xarray-ms not installed (msutils[xarray-ms])")
+    return pytest.importorskip("xarray_ms", reason="xarray-ms not installed (msutils[xarray-ms])")
 
 
 def test_msv2_read_through_the_msv4_schema(base_ms, xarray_ms):
@@ -250,9 +267,19 @@ def test_casacore_and_xarray_ms_engines_agree(base_ms, xarray_ms):
     viewed = msutils.msinfo(base_ms, engine="xarray-ms", level="data")
 
     assert native.engine == "casacore"
-    for attribute in ("nrows", "nantennas", "nfields", "nspws", "nscans",
-                      "nchan_total", "nvisibilities", "nflagged", "start_utc",
-                      "end_utc", "integration_times"):
+    for attribute in (
+        "nrows",
+        "nantennas",
+        "nfields",
+        "nspws",
+        "nscans",
+        "nchan_total",
+        "nvisibilities",
+        "nflagged",
+        "start_utc",
+        "end_utc",
+        "integration_times",
+    ):
         assert getattr(viewed, attribute) == getattr(native, attribute), attribute
     assert viewed.max_baseline == pytest.approx(native.max_baseline)
     assert viewed.fields.names == native.fields.names
@@ -278,7 +305,7 @@ def test_casacore_engine_tolerates_an_ms_stricter_readers_reject(tmp_path):
     with table(path + "::FEED", readonly=False, ack=False) as feed:
         feed.removerows(range(feed.nrows()))
 
-    info = msutils.msinfo(path)               # must not raise
+    info = msutils.msinfo(path)  # must not raise
     assert info.nfields == 3 and info.nscans == 6
 
     xarray_ms_errors = pytest.importorskip("xarray_ms.errors")

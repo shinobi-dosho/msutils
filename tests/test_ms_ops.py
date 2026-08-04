@@ -3,6 +3,7 @@
 Run against the synthetic MS built by the `ms` fixture (see conftest.py and
 tests/msfactory.py), which needs nothing beyond python-casacore.
 """
+
 import numpy
 from casacore.tables import table
 
@@ -28,8 +29,7 @@ def test_addcol_clone_and_idempotent(ms):
 
 
 def test_addcol_init_with(ms):
-    msutils.addcol(ms, "IMAGING_WEIGHT_SPECTRUM", clone="DATA",
-                   valuetype="float", init_with=1.0)
+    msutils.addcol(ms, "IMAGING_WEIGHT_SPECTRUM", clone="DATA", valuetype="float", init_with=1.0)
     col = _getcol(ms, "IMAGING_WEIGHT_SPECTRUM")
     assert numpy.allclose(col, 1.0)
 
@@ -49,8 +49,7 @@ def test_sumcols(ms):
 
 def test_sumcols_subtract(ms):
     msutils.copycol(ms, "DATA", "CORRECTED_DATA")
-    msutils.sumcols(ms, col1="DATA", col2="CORRECTED_DATA",
-                    outcol="MODEL_DATA", subtract=True)
+    msutils.sumcols(ms, col1="DATA", col2="CORRECTED_DATA", outcol="MODEL_DATA", subtract=True)
     out = _getcol(ms, "MODEL_DATA")
     assert numpy.allclose(out, 0)
 

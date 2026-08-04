@@ -12,6 +12,7 @@ Everything derived from the main table therefore comes from
 STATE_ID)`` -- the finest grouping anything here needs -- and folds the result
 up into scans, fields and MS-wide totals.
 """
+
 from __future__ import annotations
 
 import math
@@ -85,8 +86,9 @@ def read(path: str, level: str = "full") -> MSInfo:
         raise ValueError(f"level must be one of {LEVELS}, got {level!r}")
 
     with open_table(path) as tab:
-        info = MSInfo(path=os.path.abspath(path), format="MSv2",
-                      engine="casacore", nrows=tab.nrows())
+        info = MSInfo(
+            path=os.path.abspath(path), format="MSv2", engine="casacore", nrows=tab.nrows()
+        )
         info.size_bytes = _directory_size(path)
         info.subtables = subtable_names(tab)
         info.columns = Registry(_read_columns(tab), key="name")
@@ -102,8 +104,9 @@ def read(path: str, level: str = "full") -> MSInfo:
         if level == "meta" or info.nrows == 0:
             info.fields = Registry(fields)
             info.max_baseline = _max_antenna_separation(
-                info.antennas, [(a.id, b.id) for a in info.antennas
-                                for b in info.antennas if a.id < b.id])
+                info.antennas,
+                [(a.id, b.id) for a in info.antennas for b in info.antennas if a.id < b.id],
+            )
             _fill_observation_span(info)
             return info
 
@@ -124,10 +127,8 @@ def read(path: str, level: str = "full") -> MSInfo:
 def _aggregate(tab, with_data: bool = False) -> dict[str, np.ndarray]:
     """One GROUPBY pass over the main table; returns column-name -> array."""
     aggregates = _AGGREGATES + (_DATA_AGGREGATES if with_data else [])
-    selects = list(_GROUP_KEYS) + [f"{expr} AS {name}"
-                                   for name, expr in aggregates]
-    command = "SELECT {} FROM $1 GROUPBY {}".format(
-        ", ".join(selects), ", ".join(_GROUP_KEYS))
+    selects = list(_GROUP_KEYS) + [f"{expr} AS {name}" for name, expr in aggregates]
+    command = "SELECT {} FROM $1 GROUPBY {}".format(", ".join(selects), ", ".join(_GROUP_KEYS))
     LOGGER.debug("aggregating main table: %s", command)
 
     wanted = list(_GROUP_KEYS) + [name for name, _ in aggregates]
@@ -135,8 +136,12 @@ def _aggregate(tab, with_data: bool = False) -> dict[str, np.ndarray]:
         return {name: np.asarray(res.getcol(name)) for name in wanted}
 
 
-def _fold_groups(info: MSInfo, groups: dict[str, np.ndarray],
-                 fields: list[Field], intents_by_state: dict[int, list[str]]) -> None:
+def _fold_groups(
+    info: MSInfo,
+    groups: dict[str, np.ndarray],
+    fields: list[Field],
+    intents_by_state: dict[int, list[str]],
+) -> None:
     """Collapse the per-(field, scan, ddid, state) aggregates into the model."""
     ddid_to_spw = {dd.id: dd.spw_id for dd in info.data_descriptions}
     field_by_id = {f.id: f for f in fields}
@@ -169,9 +174,13 @@ def _fold_groups(info: MSInfo, groups: dict[str, np.ndarray],
         scan = scans.get(scan_no)
         if scan is None:
             scan = scans[scan_no] = Scan(
-                number=scan_no, field_id=fid,
+                number=scan_no,
+                field_id=fid,
                 field_name=field_by_id[fid].name if fid in field_by_id else "",
-                time_start=t0, time_end=t1, interval=interval)
+                time_start=t0,
+                time_end=t1,
+                interval=interval,
+            )
         scan.time_start = min(scan.time_start, t0)
         scan.time_end = max(scan.time_end, t1)
         scan.interval = min(scan.interval, interval)
@@ -180,9 +189,18 @@ def _fold_groups(info: MSInfo, groups: dict[str, np.ndarray],
         for intent in intents:
             _extend(scan.intents, intent)
 
-        stats = per_field.setdefault(fid, {"nrows": 0, "t0": t0, "t1": t1,
-                                           "scans": [], "spws": [],
-                                           "intents": [], "exposure": 0.0})
+        stats = per_field.setdefault(
+            fid,
+            {
+                "nrows": 0,
+                "t0": t0,
+                "t1": t1,
+                "scans": [],
+                "spws": [],
+                "intents": [],
+                "exposure": 0.0,
+            },
+        )
         stats["nrows"] += nrow
         stats["exposure"] += exposure
         stats["t0"] = min(stats["t0"], t0)
@@ -194,7 +212,7 @@ def _fold_groups(info: MSInfo, groups: dict[str, np.ndarray],
 
     for fid, stats in per_field.items():
         target = field_by_id.get(fid)
-        if target is None:                    # FIELD_ID with no FIELD row
+        if target is None:  # FIELD_ID with no FIELD row
             target = field_by_id[fid] = Field(id=fid, name=f"FIELD_{fid:d}")
             fields.append(target)
         target.nrows = stats["nrows"]
@@ -221,8 +239,10 @@ def _read_baselines(tab) -> list[tuple[int, int]]:
     with query("SELECT DISTINCT ANTENNA1, ANTENNA2 FROM $1", [tab]) as res:
         if res.nrows() == 0:
             return []
-        return [(int(a), int(b))
-                for a, b in zip(res.getcol("ANTENNA1"), res.getcol("ANTENNA2"), strict=True)]
+        return [
+            (int(a), int(b))
+            for a, b in zip(res.getcol("ANTENNA1"), res.getcol("ANTENNA2"), strict=True)
+        ]
 
 
 def _max_antenna_separation(antennas, baselines: list[tuple[int, int]]) -> float | None:
@@ -244,7 +264,7 @@ def _read_columns(tab) -> list[Column]:
         for spec in tab.getdminfo().values():
             for name in spec.get("COLUMNS", []):
                 manager_of[name] = spec.get("TYPE", "")
-    except RuntimeError:                       # pragma: no cover - exotic tables
+    except RuntimeError:  # pragma: no cover - exotic tables
         LOGGER.debug("could not read data manager info for %s", tab.name())
 
     columns = []
@@ -267,28 +287,38 @@ def _read_columns(tab) -> list[Column]:
         units = keywords.get("QuantumUnits")
         if units is not None and len(units):
             unit = str(units[0])
-        columns.append(Column(
-            name=name,
-            dtype=str(desc.get("valueType", "")),
-            ndim=ndim,
-            shape=shape,
-            unit=unit,
-            data_manager=manager_of.get(name, ""),
-            nbytes=_column_nbytes(desc.get("valueType", ""), shape, nrows),
-        ))
+        columns.append(
+            Column(
+                name=name,
+                dtype=str(desc.get("valueType", "")),
+                ndim=ndim,
+                shape=shape,
+                unit=unit,
+                data_manager=manager_of.get(name, ""),
+                nbytes=_column_nbytes(desc.get("valueType", ""), shape, nrows),
+            )
+        )
     return columns
 
 
 #: Bytes per element for the casacore value types we expect in an MS.
 _ITEMSIZE = {
-    "bool": 1, "boolean": 1, "uchar": 1, "short": 2, "ushort": 2,
-    "int": 4, "uint": 4, "int64": 8, "float": 4, "double": 8,
-    "complex": 8, "dcomplex": 16,
+    "bool": 1,
+    "boolean": 1,
+    "uchar": 1,
+    "short": 2,
+    "ushort": 2,
+    "int": 4,
+    "uint": 4,
+    "int64": 8,
+    "float": 4,
+    "double": 8,
+    "complex": 8,
+    "dcomplex": 16,
 }
 
 
-def _column_nbytes(valuetype: str, shape: list[int] | None,
-                   nrows: int) -> int | None:
+def _column_nbytes(valuetype: str, shape: list[int] | None, nrows: int) -> int | None:
     """Logical size of a column: rows x cell size. Not on-disk size."""
     itemsize = _ITEMSIZE.get(str(valuetype).lower())
     if itemsize is None or not nrows:
@@ -310,12 +340,19 @@ def _read_antennas(path: str) -> list[Antenna]:
         positions = tab.getcol("POSITION")
         diameters = _optional_col(tab, "DISH_DIAMETER")
         flags = _optional_col(tab, "FLAG_ROW")
-        return [Antenna(id=i, name=names[i], station=stations[i], mount=mounts[i],
-                        type=types[i],
-                        dish_diameter=float(diameters[i]) if diameters is not None else 0.0,
-                        position=tuple(float(v) for v in positions[i]),
-                        flagged=bool(flags[i]) if flags is not None else False)
-                for i in range(tab.nrows())]
+        return [
+            Antenna(
+                id=i,
+                name=names[i],
+                station=stations[i],
+                mount=mounts[i],
+                type=types[i],
+                dish_diameter=float(diameters[i]) if diameters is not None else 0.0,
+                position=tuple(float(v) for v in positions[i]),
+                flagged=bool(flags[i]) if flags is not None else False,
+            )
+            for i in range(tab.nrows())
+        ]
 
 
 def _read_spws(path: str) -> list[SpectralWindow]:
@@ -326,42 +363,53 @@ def _read_spws(path: str) -> list[SpectralWindow]:
         groups = _strings(tab, "FREQ_GROUP_NAME", tab.nrows())
         spws = []
         for i in range(tab.nrows()):
-            spws.append(SpectralWindow(
-                id=i,
-                name=names[i],
-                num_chan=int(tab.getcell("NUM_CHAN", i)),
-                chan_freq=[float(f) for f in np.atleast_1d(tab.getcell("CHAN_FREQ", i))],
-                chan_width=[float(w) for w in np.atleast_1d(tab.getcell("CHAN_WIDTH", i))],
-                ref_frequency=float(tab.getcell("REF_FREQUENCY", i)),
-                total_bandwidth=float(tab.getcell("TOTAL_BANDWIDTH", i)),
-                meas_freq_ref=int(tab.getcell("MEAS_FREQ_REF", i))
-                if "MEAS_FREQ_REF" in tab.colnames() else 0,
-                freq_group_name=groups[i],
-            ))
+            spws.append(
+                SpectralWindow(
+                    id=i,
+                    name=names[i],
+                    num_chan=int(tab.getcell("NUM_CHAN", i)),
+                    chan_freq=[float(f) for f in np.atleast_1d(tab.getcell("CHAN_FREQ", i))],
+                    chan_width=[float(w) for w in np.atleast_1d(tab.getcell("CHAN_WIDTH", i))],
+                    ref_frequency=float(tab.getcell("REF_FREQUENCY", i)),
+                    total_bandwidth=float(tab.getcell("TOTAL_BANDWIDTH", i)),
+                    meas_freq_ref=int(tab.getcell("MEAS_FREQ_REF", i))
+                    if "MEAS_FREQ_REF" in tab.colnames()
+                    else 0,
+                    freq_group_name=groups[i],
+                )
+            )
         return spws
 
 
 def _read_polarizations(path: str) -> list[Polarization]:
     with open_table(path + "::POLARIZATION") as tab:
-        return [Polarization(id=i,
-                             num_corr=int(tab.getcell("NUM_CORR", i)),
-                             corr_type=[int(c) for c in
-                                        np.atleast_1d(tab.getcell("CORR_TYPE", i))])
-                for i in range(tab.nrows())]
+        return [
+            Polarization(
+                id=i,
+                num_corr=int(tab.getcell("NUM_CORR", i)),
+                corr_type=[int(c) for c in np.atleast_1d(tab.getcell("CORR_TYPE", i))],
+            )
+            for i in range(tab.nrows())
+        ]
 
 
 def _read_data_descriptions(path: str, info: MSInfo) -> list[DataDescription]:
     with open_table(path + "::DATA_DESCRIPTION") as tab:
         if tab.nrows() == 0:
             # Degenerate MS: assume a 1:1 DDID -> SPW mapping.
-            return [DataDescription(id=i, spw_id=i, pol_id=0)
-                    for i in range(len(info.spws))]
+            return [DataDescription(id=i, spw_id=i, pol_id=0) for i in range(len(info.spws))]
         spw_ids = tab.getcol("SPECTRAL_WINDOW_ID")
         pol_ids = tab.getcol("POLARIZATION_ID")
         flags = _optional_col(tab, "FLAG_ROW")
-        return [DataDescription(id=i, spw_id=int(spw_ids[i]), pol_id=int(pol_ids[i]),
-                                flagged=bool(flags[i]) if flags is not None else False)
-                for i in range(tab.nrows())]
+        return [
+            DataDescription(
+                id=i,
+                spw_id=int(spw_ids[i]),
+                pol_id=int(pol_ids[i]),
+                flagged=bool(flags[i]) if flags is not None else False,
+            )
+            for i in range(tab.nrows())
+        ]
 
 
 def _read_fields(path: str) -> list[Field]:
@@ -375,12 +423,16 @@ def _read_fields(path: str) -> list[Field]:
         fields = []
         for i in range(tab.nrows()):
             centre = np.atleast_2d(tab.getcell("PHASE_DIR", i))[0]
-            fields.append(Field(
-                id=i, name=names[i], code=codes[i],
-                source_id=int(source_ids[i]) if source_ids is not None else -1,
-                phase_centre=(float(centre[0]), float(centre[1])),
-                ref_frame=frame,
-            ))
+            fields.append(
+                Field(
+                    id=i,
+                    name=names[i],
+                    code=codes[i],
+                    source_id=int(source_ids[i]) if source_ids is not None else -1,
+                    phase_centre=(float(centre[0]), float(centre[1])),
+                    ref_frame=frame,
+                )
+            )
         return fields
 
 
@@ -412,8 +464,9 @@ def _read_state_intents(path: str) -> dict[int, list[str]]:
             modes = _strings(tab, "OBS_MODE", tab.nrows())
     except RuntimeError:
         return {}
-    return {i: [part.strip() for part in modes[i].split(",") if part.strip()]
-            for i in range(len(modes))}
+    return {
+        i: [part.strip() for part in modes[i].split(",") if part.strip()] for i in range(len(modes))
+    }
 
 
 def _fill_observation_span(info: MSInfo) -> None:
@@ -436,7 +489,7 @@ def _direction_frame(tab, column: str) -> str:
     try:
         measinfo = tab.getcoldesc(column).get("keywords", {}).get("MEASINFO", {})
         return str(measinfo.get("Ref", "J2000"))
-    except (RuntimeError, AttributeError):     # pragma: no cover
+    except (RuntimeError, AttributeError):  # pragma: no cover
         return "J2000"
 
 
@@ -478,6 +531,6 @@ def _directory_size(path: str) -> int | None:
                     total += os.path.getsize(os.path.join(root, name))
                 except OSError:
                     continue
-    except OSError:                            # pragma: no cover
+    except OSError:  # pragma: no cover
         return None
     return total

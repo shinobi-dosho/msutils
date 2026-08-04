@@ -4,6 +4,7 @@
 dict *shape* so existing pipelines keep running, but the values it reports are
 the corrected ones -- these tests pin both halves of that contract.
 """
+
 import json
 import warnings
 
@@ -28,8 +29,7 @@ def test_summary_warns(base_ms):
 
 
 def test_legacy_keys_are_preserved(legacy):
-    for key in ("FIELD", "SPW", "ANT", "MAXBL", "SCAN", "EXPOSURE", "NROW",
-                "CORR", "NCOR"):
+    for key in ("FIELD", "SPW", "ANT", "MAXBL", "SCAN", "EXPOSURE", "NROW", "CORR", "NCOR"):
         assert key in legacy
 
 

@@ -12,9 +12,9 @@ import msutils
 info = msutils.msinfo("obs.ms")
 print(info.render())
 
-info.fields["PKS1934-638"].scan_numbers   # [1, 2]
-info.spws[0].chan_width[0]                # 10000000.0
-info.antennas["m003"].latitude            # -30.71053
+info.fields["PKS1934-638"].scan_numbers  # [1, 2]
+info.spws[0].chan_width[0]  # 10000000.0
+info.antennas["m003"].latitude  # -30.71053
 ```
 
 ```
@@ -60,16 +60,16 @@ calibrator", not "row 1".
 ```python
 info = msutils.msinfo("obs.ms")
 
-info.observation.telescope           # 'MEERKAT'
-info.fields["DEEP_2"].intents        # ['OBSERVE_TARGET#ON_SOURCE']
-info.fields["DEEP_2"].ra_hms         # '04h23m33.635'
-info.scans[7].duration               # 24.0  (includes the final integration)
-info.spws["SPW0"].centre_freq        # 1415000000.0
-info.data_descriptions[1].spw_id     # DDID -> SPW, explicitly
-info.columns["DATA"].shape           # [4, 4]
+info.observation.telescope  # 'MEERKAT'
+info.fields["DEEP_2"].intents  # ['OBSERVE_TARGET#ON_SOURCE']
+info.fields["DEEP_2"].ra_hms  # '04h23m33.635'
+info.scans[7].duration  # 24.0  (includes the final integration)
+info.spws["SPW0"].centre_freq  # 1415000000.0
+info.data_descriptions[1].spw_id  # DDID -> SPW, explicitly
+info.columns["DATA"].shape  # [4, 4]
 
-info.to_dict()                       # stable, versioned JSON
-info.render(verbose=True)            # the listobs-style report above
+info.to_dict()  # stable, versioned JSON
+info.render(verbose=True)  # the listobs-style report above
 ```
 
 Three cost levels, so inspecting a 100 GB MS doesn't have to read 100 GB:
@@ -88,9 +88,9 @@ flat in the number of scans.
 `msinfo` reads MSv2 tables and MSv4 processing sets into the same `MSInfo`:
 
 ```python
-msutils.msinfo("obs.ms")                          # MSv2, via casacore/TaQL
-msutils.msinfo("obs.zarr")                        # MSv4, via xarray + zarr
-msutils.msinfo("obs.ms", engine="xarray-ms")      # MSv2 through the MSv4 schema
+msutils.msinfo("obs.ms")  # MSv2, via casacore/TaQL
+msutils.msinfo("obs.zarr")  # MSv4, via xarray + zarr
+msutils.msinfo("obs.ms", engine="xarray-ms")  # MSv2 through the MSv4 schema
 ```
 
 The default MSv2 engine is casacore/TaQL: it needs nothing beyond the base
@@ -113,24 +113,24 @@ msutils convert obs.ms obs.zarr
 msutils.addcol("obs.ms", "MODEL_DATA", clone="DATA")
 msutils.copycol("obs.ms", "DATA", "CORRECTED_DATA")
 msutils.sumcols("obs.ms", cols=["DATA", "MODEL_DATA"], outcol="CORRECTED_DATA")
-msutils.delcol("obs.ms", "CORRECTED_DATA")          # reclaim the disk
+msutils.delcol("obs.ms", "CORRECTED_DATA")  # reclaim the disk
 msutils.renamecol("obs.ms", "MODEL_DATA", "OLD_MODEL")
 msutils.addnoise("obs.ms", column="MODEL_DATA", sefd=551)
 
 # datasets
 msutils.subset("obs.ms", "target.ms", fields=["DEEP_2"], spws=[0])
-msutils.average("obs.ms", "avg.ms", time_bin=8.0, chan_bin=4)   # [average]
+msutils.average("obs.ms", "avg.ms", time_bin=8.0, chan_bin=4)  # [average]
 
 # flags
 stats = msutils.flagstats("obs.ms")
 stats.by_correlation["XY"].percent
-stats.by_channel[0]                                 # per-channel, per SPW
+stats.by_channel[0]  # per-channel, per SPW
 msutils.flag_backup("obs.ms", name="pre-rfi")
 msutils.flag_restore("obs.ms", "pre-rfi")
 
 # diagnostics
-msutils.du("obs.ms")                                # where the bytes went
-msutils.check("obs.ms")                             # MSv2 conformance
+msutils.du("obs.ms")  # where the bytes went
+msutils.check("obs.ms")  # MSv2 conformance
 msutils.taql("SELECT DISTINCT FIELD_ID FROM $1", "obs.ms")
 ```
 
@@ -171,8 +171,8 @@ and for the removed 1.x aliases.
 `msutils<3` if you still need it.
 
 ```python
-info = msutils.summary("obs.ms")     # deprecated
-info = msutils.msinfo("obs.ms")      # use this
+info = msutils.summary("obs.ms")  # deprecated
+info = msutils.msinfo("obs.ms")  # use this
 ```
 
 ## License

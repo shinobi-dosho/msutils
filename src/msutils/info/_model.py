@@ -16,6 +16,7 @@ Design notes:
 * **JSON is a stable, versioned schema.** :data:`SCHEMA_VERSION` is emitted in
   every dump so downstream pipelines can branch on it.
 """
+
 from __future__ import annotations
 
 import datetime
@@ -56,20 +57,53 @@ SCHEMA_VERSION = "1.0"
 
 #: Correlation-type code -> label, per the casacore ``Stokes`` enumeration.
 STOKES_TYPES = {
-    0: "Undefined", 1: "I", 2: "Q", 3: "U", 4: "V",
-    5: "RR", 6: "RL", 7: "LR", 8: "LL",
-    9: "XX", 10: "XY", 11: "YX", 12: "YY",
-    13: "RX", 14: "RY", 15: "LX", 16: "LY",
-    17: "XR", 18: "XL", 19: "YR", 20: "YL",
-    21: "PP", 22: "PQ", 23: "QP", 24: "QQ",
-    25: "RCircular", 26: "LCircular", 27: "Linear",
-    28: "Ptotal", 29: "Plinear", 30: "PFtotal", 31: "PFlinear", 32: "Pangle",
+    0: "Undefined",
+    1: "I",
+    2: "Q",
+    3: "U",
+    4: "V",
+    5: "RR",
+    6: "RL",
+    7: "LR",
+    8: "LL",
+    9: "XX",
+    10: "XY",
+    11: "YX",
+    12: "YY",
+    13: "RX",
+    14: "RY",
+    15: "LX",
+    16: "LY",
+    17: "XR",
+    18: "XL",
+    19: "YR",
+    20: "YL",
+    21: "PP",
+    22: "PQ",
+    23: "QP",
+    24: "QQ",
+    25: "RCircular",
+    26: "LCircular",
+    27: "Linear",
+    28: "Ptotal",
+    29: "Plinear",
+    30: "PFtotal",
+    31: "PFlinear",
+    32: "Pangle",
 }
 
 #: ``SPECTRAL_WINDOW::MEAS_FREQ_REF`` code -> spectral reference frame.
 FREQ_FRAMES = {
-    0: "REST", 1: "LSRK", 2: "LSRD", 3: "BARY", 4: "GEO",
-    5: "TOPO", 6: "GALACTO", 7: "LGROUP", 8: "CMB", 64: "Undefined",
+    0: "REST",
+    1: "LSRK",
+    2: "LSRD",
+    3: "BARY",
+    4: "GEO",
+    5: "TOPO",
+    6: "GALACTO",
+    7: "LGROUP",
+    8: "CMB",
+    64: "Undefined",
 }
 
 # MJD zero point: 1858-11-17 00:00:00 UTC. MS TIME columns are seconds since
@@ -132,7 +166,7 @@ def format_duration(seconds: float) -> str:
 _WGS84_A = 6378137.0
 _WGS84_F = 1.0 / 298.257223563
 _WGS84_B = _WGS84_A * (1.0 - _WGS84_F)
-_WGS84_E2 = 2.0 * _WGS84_F - _WGS84_F ** 2
+_WGS84_E2 = 2.0 * _WGS84_F - _WGS84_F**2
 
 
 def itrf_to_geodetic(x: float, y: float, z: float) -> tuple[float, float, float]:
@@ -143,12 +177,13 @@ def itrf_to_geodetic(x: float, y: float, z: float) -> tuple[float, float, float]
     """
     lon = math.atan2(y, x)
     p = math.hypot(x, y)
-    if p == 0.0:                                  # on the polar axis
+    if p == 0.0:  # on the polar axis
         return lon, math.copysign(math.pi / 2, z), abs(z) - _WGS84_B
-    ep2 = (_WGS84_A ** 2 - _WGS84_B ** 2) / _WGS84_B ** 2
+    ep2 = (_WGS84_A**2 - _WGS84_B**2) / _WGS84_B**2
     theta = math.atan2(z * _WGS84_A, p * _WGS84_B)
-    lat = math.atan2(z + ep2 * _WGS84_B * math.sin(theta) ** 3,
-                     p - _WGS84_E2 * _WGS84_A * math.cos(theta) ** 3)
+    lat = math.atan2(
+        z + ep2 * _WGS84_B * math.sin(theta) ** 3, p - _WGS84_E2 * _WGS84_A * math.cos(theta) ** 3
+    )
     n = _WGS84_A / math.sqrt(1.0 - _WGS84_E2 * math.sin(lat) ** 2)
     height = p / math.cos(lat) - n
     return lon, lat, height
@@ -157,9 +192,11 @@ def itrf_to_geodetic(x: float, y: float, z: float) -> tuple[float, float, float]
 def geodetic_to_itrf(lon: float, lat: float, height: float) -> tuple[float, float, float]:
     """(longitude, latitude, height) in radians/metres -> ITRF/ECEF metres."""
     n = _WGS84_A / math.sqrt(1.0 - _WGS84_E2 * math.sin(lat) ** 2)
-    return ((n + height) * math.cos(lat) * math.cos(lon),
-            (n + height) * math.cos(lat) * math.sin(lon),
-            ((_WGS84_B ** 2 / _WGS84_A ** 2) * n + height) * math.sin(lat))
+    return (
+        (n + height) * math.cos(lat) * math.cos(lon),
+        (n + height) * math.cos(lat) * math.sin(lon),
+        ((_WGS84_B**2 / _WGS84_A**2) * n + height) * math.sin(lat),
+    )
 
 
 def _jsonify(value: Any) -> Any:
@@ -225,7 +262,9 @@ class Registry(Sequence):
         try:
             return self._by_id[key]
         except KeyError:
-            raise KeyError(f"no entry with {self._key}={key!r}; have {sorted(self._by_id)}") from None
+            raise KeyError(
+                f"no entry with {self._key}={key!r}; have {sorted(self._by_id)}"
+            ) from None
 
     def __len__(self) -> int:
         return len(self._items)
@@ -549,9 +588,18 @@ class MSInfo(_Record):
     nvisibilities: int | None = None
     schema_version: str = SCHEMA_VERSION
 
-    _derived = ("nantennas", "nfields", "nspws", "nscans", "nchan_total",
-                "column_names", "flagged_fraction", "start_utc", "end_utc",
-                "duration")
+    _derived = (
+        "nantennas",
+        "nfields",
+        "nspws",
+        "nscans",
+        "nchan_total",
+        "column_names",
+        "flagged_fraction",
+        "start_utc",
+        "end_utc",
+        "duration",
+    )
 
     @property
     def start_utc(self) -> str | None:
@@ -609,11 +657,13 @@ class MSInfo(_Record):
     def render(self, verbose: bool = False) -> str:
         """A human-readable, ``listobs``-style report."""
         from ._render import render
+
         return render(self, verbose=verbose)
 
     def to_json(self, indent: int | None = 2) -> str:
         """Serialise to a JSON string."""
         import json
+
         return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
 
     def save(self, path: str, indent: int | None = 2) -> str:

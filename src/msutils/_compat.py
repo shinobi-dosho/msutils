@@ -22,6 +22,7 @@ previously were not**:
 Code that depended on the old (wrong) numbers should move to
 :func:`msutils.msinfo`.
 """
+
 from __future__ import annotations
 
 import codecs
@@ -47,11 +48,21 @@ _DEPRECATION = (
 
 # Raw subtable columns the old summary() dumped wholesale. Reproduced so that
 # callers indexing e.g. info['ANT']['POSITION'] keep working.
-_SPW_COLUMNS = ["CHAN_FREQ", "MEAS_FREQ_REF", "REF_FREQUENCY", "TOTAL_BANDWIDTH", "NAME", "NUM_CHAN", "IF_CONV_CHAIN", "NET_SIDEBAND", "FREQ_GROUP_NAME", "CHAN_WIDTH"]
+_SPW_COLUMNS = [
+    "CHAN_FREQ",
+    "MEAS_FREQ_REF",
+    "REF_FREQUENCY",
+    "TOTAL_BANDWIDTH",
+    "NAME",
+    "NUM_CHAN",
+    "IF_CONV_CHAIN",
+    "NET_SIDEBAND",
+    "FREQ_GROUP_NAME",
+    "CHAN_WIDTH",
+]
 
 
-def summary(msname: str, outfile: str | None = None,
-            display: bool = True) -> dict[str, Any]:
+def summary(msname: str, outfile: str | None = None, display: bool = True) -> dict[str, Any]:
     """Deprecated. Use :func:`msutils.msinfo` instead.
 
     Returns the legacy summary dict, built from :func:`msinfo`.
@@ -75,14 +86,17 @@ def summary(msname: str, outfile: str | None = None,
     out["FIELD"]["INTENTS"] = [f.intents for f in info.fields]
     out["FIELD"]["STATE_ID"] = [state_ids.get(f.id) for f in info.fields]
     out["FIELD"]["PERIOD"] = [
-        sum(info.scans[n].duration for n in f.scan_numbers) for f in info.fields]
+        sum(info.scans[n].duration for n in f.scan_numbers) for f in info.fields
+    ]
 
     for scan in info.scans:
         out["SCAN"].setdefault(str(scan.field_id), {})[str(scan.number)] = scan.duration
 
-    for key, subtable, columns in (("FIELD", "FIELD", None),
-                                   ("ANT", "ANTENNA", None),
-                                   ("SPW", "SPECTRAL_WINDOW", _SPW_COLUMNS)):
+    for key, subtable, columns in (
+        ("FIELD", "FIELD", None),
+        ("ANT", "ANTENNA", None),
+        ("SPW", "SPECTRAL_WINDOW", _SPW_COLUMNS),
+    ):
         out[key].update(_dump_subtable(msname, subtable, columns))
 
     if len(info.polarizations):
@@ -90,7 +104,7 @@ def summary(msname: str, outfile: str | None = None,
         out["CORR"]["NUM_CORR"] = pol.num_corr
         out["CORR"]["CORR_TYPE"] = pol.corr_labels
         out["NCOR"] = pol.num_corr
-    else:                                      # pragma: no cover - malformed MS
+    else:  # pragma: no cover - malformed MS
         out["CORR"]["NUM_CORR"] = 0
         out["CORR"]["CORR_TYPE"] = []
         out["NCOR"] = 0
@@ -116,29 +130,31 @@ def _state_ids(msname: str) -> dict[int, int]:
     with open_table(msname) as tab:
         if "STATE_ID" not in tab.colnames() or tab.nrows() == 0:
             return {}
-        with query("SELECT FIELD_ID, GMIN(STATE_ID) AS STATE_ID FROM $1 "
-                   "GROUPBY FIELD_ID", [tab]) as res:
-            return {int(f): int(s) for f, s in zip(res.getcol("FIELD_ID"),
-                                                   res.getcol("STATE_ID"), strict=True)}
+        with query(
+            "SELECT FIELD_ID, GMIN(STATE_ID) AS STATE_ID FROM $1 GROUPBY FIELD_ID", [tab]
+        ) as res:
+            return {
+                int(f): int(s)
+                for f, s in zip(res.getcol("FIELD_ID"), res.getcol("STATE_ID"), strict=True)
+            }
 
 
-def _dump_subtable(msname: str, subtable: str,
-                   columns: list | None) -> dict[str, Any]:
+def _dump_subtable(msname: str, subtable: str, columns: list | None) -> dict[str, Any]:
     """Read a subtable's columns into plain lists, as the old summary() did."""
     out: dict[str, Any] = {}
     with open_table(f"{msname}::{subtable}") as tab:
-        for name in (columns if columns is not None else tab.colnames()):
+        for name in columns if columns is not None else tab.colnames():
             if name not in tab.colnames():
                 continue
             try:
                 value = tab.getcol(name)
-            except RuntimeError:               # unfilled / variable-shaped column
+            except RuntimeError:  # unfilled / variable-shaped column
                 continue
             out[name] = value.tolist() if hasattr(value, "tolist") else value
     return out
 
 
-def _fallback(value: Any) -> Any:              # pragma: no cover - defensive
+def _fallback(value: Any) -> Any:  # pragma: no cover - defensive
     """JSON encoder fallback for stray numpy scalars."""
     if hasattr(value, "item"):
         return value.item()

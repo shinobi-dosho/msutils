@@ -5,6 +5,7 @@ a specific antenna, so each axis has a different known answer. That is what
 distinguishes a real per-axis breakdown from the 2.x implementation, whose
 reduction kernel wrote the overall total into every correlation slot.
 """
+
 import json
 
 import pytest
@@ -19,6 +20,7 @@ def stats(patterned_ms):
 
 # --------------------------------------------------------------------------
 # the axes the old implementation got wrong
+
 
 def test_correlations_are_distinguished(stats):
     """XY is fully flagged; the other three are not.
@@ -64,16 +66,17 @@ def test_field_selection_is_honoured(patterned_ms):
     one_field = flagstats(patterned_ms, fields=["PKS1934-638"])
     assert one_field.total.total < everything.total.total
     # antenna totals must shrink too, not stay at the all-fields value
-    assert (sum(a.total for a in one_field.by_antenna)
-            < sum(a.total for a in everything.by_antenna))
+    assert sum(a.total for a in one_field.by_antenna) < sum(a.total for a in everything.by_antenna)
     assert len(one_field.by_field) == 1
 
 
 # --------------------------------------------------------------------------
 # counting
 
+
 def test_counts_are_internally_consistent(stats, patterned_ms):
     from casacore.tables import table
+
     with table(patterned_ms, ack=False) as tab:
         flag = tab.getcol("FLAG")
 
@@ -81,8 +84,7 @@ def test_counts_are_internally_consistent(stats, patterned_ms):
     assert stats.total.total == int(flag.size)
 
     # each axis must partition the same total
-    for axis in (stats.by_field, stats.by_scan, stats.by_correlation,
-                 stats.by_spw):
+    for axis in (stats.by_field, stats.by_scan, stats.by_correlation, stats.by_spw):
         assert sum(c.flagged for c in axis) == stats.total.flagged
         assert sum(c.total for c in axis) == stats.total.total
 
@@ -102,6 +104,7 @@ def test_fraction_of_empty_bin_is_zero():
 
 # --------------------------------------------------------------------------
 # selection and validation
+
 
 def test_selection_by_id_and_name(patterned_ms):
     by_id = flagstats(patterned_ms, antennas=[0, 1])
@@ -140,6 +143,7 @@ def test_unflagged_ms(single_spw_ms):
 # --------------------------------------------------------------------------
 # output
 
+
 def test_json_round_trip(stats, tmp_path):
     out = tmp_path / "flags.json"
     stats.save(str(out))
@@ -157,8 +161,15 @@ def test_outfile_argument(patterned_ms, tmp_path):
 
 def test_render_reports_every_axis(stats):
     text = stats.render()
-    for expected in ("Flag statistics", "overall", "Field (3)",
-                     "Correlation (4)", "Antenna (4)", "Channel", "XY"):
+    for expected in (
+        "Flag statistics",
+        "overall",
+        "Field (3)",
+        "Correlation (4)",
+        "Antenna (4)",
+        "Channel",
+        "XY",
+    ):
         assert expected in text
     assert str(stats) == text
 
@@ -166,15 +177,16 @@ def test_render_reports_every_axis(stats):
 def test_plot_statistics_writes_png(patterned_ms, tmp_path):
     pytest.importorskip("matplotlib")
     from msutils.flagstats import plot_statistics
+
     plot = tmp_path / "flags.png"
-    result = plot_statistics(patterned_ms, plotfile=str(plot),
-                             outfile=str(tmp_path / "flags.json"))
+    result = plot_statistics(patterned_ms, plotfile=str(plot), outfile=str(tmp_path / "flags.json"))
     assert plot.exists() and plot.stat().st_size > 0
     assert result.total.total > 0
 
 
 def test_save_statistics_entry_point(patterned_ms, tmp_path):
     from msutils.flagstats import save_statistics
+
     out = tmp_path / "saved.json"
     result = save_statistics(patterned_ms, outfile=str(out))
     assert out.exists()
@@ -191,9 +203,12 @@ def test_flagstats_needs_no_dask():
     import subprocess
     import sys
 
-    code = ("import sys, msutils.flagstats;"
-            "print(','.join(m for m in ('dask', 'daskms') if m in sys.modules))")
+    code = (
+        "import sys, msutils.flagstats;"
+        "print(','.join(m for m in ('dask', 'daskms') if m in sys.modules))"
+    )
     env = dict(os.environ, PYTHONPATH=os.pathsep.join(sys.path))
-    result = subprocess.run([sys.executable, "-c", code], capture_output=True,
-                            text=True, check=True, env=env)
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True, env=env
+    )
     assert result.stdout.strip() == "", result.stdout

@@ -13,6 +13,7 @@ Two rules the rest of the package depends on:
 keeps it in casacore's C++ layer and costs one streaming pass over the MS,
 instead of one Python-level pass per field/scan/antenna.
 """
+
 from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
@@ -25,8 +26,7 @@ __all__ = ["closing_table", "open_table", "query", "subtable_names", "table_exis
 
 
 @contextmanager
-def open_table(name: str, readonly: bool = True, ack: bool = False,
-               **kwargs) -> Iterator[table]:
+def open_table(name: str, readonly: bool = True, ack: bool = False, **kwargs) -> Iterator[table]:
     """Open a casacore table by name, closing it on exit.
 
     Args:
@@ -52,8 +52,7 @@ def closing_table(tab: table) -> Iterator[table]:
 
 
 @contextmanager
-def query(command: str, tables: Sequence[table] | None = None,
-          **kwargs: Any) -> Iterator[table]:
+def query(command: str, tables: Sequence[table] | None = None, **kwargs: Any) -> Iterator[table]:
     """Run a TaQL command, yielding the result table and closing it on exit.
 
     Bind input tables positionally as ``$1``, ``$2``, ... rather than
@@ -83,6 +82,8 @@ def table_exists(name: str) -> bool:
 
 def subtable_names(tab: table) -> list[str]:
     """Names of the subtables attached to ``tab`` as table keywords."""
-    return sorted(k for k in tab.keywordnames()
-                  if isinstance(tab.getkeyword(k), str)
-                  and tab.getkeyword(k).startswith("Table:"))
+    return sorted(
+        k
+        for k in tab.keywordnames()
+        if isinstance(tab.getkeyword(k), str) and tab.getkeyword(k).startswith("Table:")
+    )

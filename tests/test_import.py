@@ -3,10 +3,19 @@
 These assert importability and API surface only -- behaviour lives in the
 MS-backed test modules.
 """
+
 PUBLIC_API = [
-    "msinfo", "MSInfo", "detect_format",
-    "summary", "addcol", "sumcols", "copycol",
-    "compute_vis_noise", "verify_antpos", "addnoise", "STOKES_TYPES",
+    "msinfo",
+    "MSInfo",
+    "detect_format",
+    "summary",
+    "addcol",
+    "sumcols",
+    "copycol",
+    "compute_vis_noise",
+    "verify_antpos",
+    "addnoise",
+    "STOKES_TYPES",
 ]
 
 
@@ -32,8 +41,7 @@ def test_removed_1x_aliases_are_gone():
 
     import pytest
 
-    for name in ("MSUtils", "msutils.msutils", "msutils.flag_stats",
-                 "msutils.ClassESW"):
+    for name in ("MSUtils", "msutils.msutils", "msutils.flag_stats", "msutils.ClassESW"):
         with pytest.raises(ImportError):
             importlib.import_module(name)
 
@@ -57,8 +65,9 @@ def test_importing_msutils_does_not_pull_in_optional_stacks():
     # pytest's `pythonpath` setting applies to this process only, so hand the
     # subprocess the same search path.
     env = dict(os.environ, PYTHONPATH=os.pathsep.join(sys.path))
-    result = subprocess.run([sys.executable, "-c", code], capture_output=True,
-                            text=True, check=True, env=env)
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True, env=env
+    )
     assert result.stdout.strip() == "", result.stdout
 
 

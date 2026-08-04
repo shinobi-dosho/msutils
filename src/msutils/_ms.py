@@ -1,4 +1,5 @@
 """Core Measurement Set column operations (numpy + python-casacore only)."""
+
 from __future__ import annotations
 
 import math
@@ -39,18 +40,23 @@ def _measures():
     package import path.
     """
     import casacore.measures
+
     return casacore.measures.measures()
 
 
-def addcol(msname: str, colname: str | None = None, shape: Sequence[int] | None = None,
-           data_desc_type: str = "array",
-           valuetype: str | None = None,
-           init_with: Any = None,
-           coldesc: dict | None = None,
-           coldmi: dict | None = None,
-           clone: str | None = "DATA",
-           rowchunk: int | None = None,
-           **kw) -> str:
+def addcol(
+    msname: str,
+    colname: str | None = None,
+    shape: Sequence[int] | None = None,
+    data_desc_type: str = "array",
+    valuetype: str | None = None,
+    init_with: Any = None,
+    coldesc: dict | None = None,
+    coldmi: dict | None = None,
+    clone: str | None = "DATA",
+    rowchunk: int | None = None,
+    **kw,
+) -> str:
     """Add a column to an MS.
 
     Args:
@@ -75,8 +81,7 @@ def addcol(msname: str, colname: str | None = None, shape: Sequence[int] | None 
     if not colname:
         raise ValueError("colname is required")
     if data_desc_type not in ("array", "scalar"):
-        raise ValueError("data_desc_type must be 'array' or 'scalar', got "
-                         f"{data_desc_type!r}")
+        raise ValueError(f"data_desc_type must be 'array' or 'scalar', got {data_desc_type!r}")
 
     with open_table(msname, readonly=False) as tab:
         if colname in tab.colnames():
@@ -92,33 +97,33 @@ def addcol(msname: str, colname: str | None = None, shape: Sequence[int] | None 
             data_desc = coldesc
             shape = coldesc.get("shape")
         elif shape:
-            data_desc = maketabdesc(makearrcoldesc(
-                colname, fill, shape=list(shape), valuetype=valuetype))
+            data_desc = maketabdesc(
+                makearrcoldesc(colname, fill, shape=list(shape), valuetype=valuetype)
+            )
         elif data_desc_type == "scalar":
             shape = []
-            data_desc = maketabdesc(makescacoldesc(colname, fill,
-                                                   valuetype=valuetype))
+            data_desc = maketabdesc(makescacoldesc(colname, fill, valuetype=valuetype))
         elif clone:
             if clone not in tab.colnames():
-                raise ValueError(
-                    f"cannot clone {clone!r}: no such column in {msname}")
+                raise ValueError(f"cannot clone {clone!r}: no such column in {msname}")
             element = tab.getcell(clone, 0)
-            if np.ndim(element):            # array column
+            if np.ndim(element):  # array column
                 shape = list(np.shape(element))
-                data_desc = maketabdesc(makearrcoldesc(
-                    colname, np.asarray(element).flatten()[0],
-                    shape=shape, valuetype=valuetype))
-            else:                              # scalar column
+                data_desc = maketabdesc(
+                    makearrcoldesc(
+                        colname, np.asarray(element).flatten()[0], shape=shape, valuetype=valuetype
+                    )
+                )
+            else:  # scalar column
                 shape = []
-                data_desc = maketabdesc(makescacoldesc(colname, element,
-                                                       valuetype=valuetype))
+                data_desc = maketabdesc(makescacoldesc(colname, element, valuetype=valuetype))
         else:
             # Previously fell through with `data_desc` unbound, raising an
             # opaque UnboundLocalError.
             raise ValueError(
                 f"not enough information to create column {colname!r}: pass one of "
                 "`shape`, `coldesc`, `clone`, or data_desc_type='scalar'"
-                )
+            )
 
         colinfo = [data_desc, coldmi] if coldmi else [data_desc]
         tab.addcols(*colinfo)
@@ -130,8 +135,7 @@ def addcol(msname: str, colname: str | None = None, shape: Sequence[int] | None 
 
         spwids = sorted(set(tab.getcol("DATA_DESC_ID")))
         for spw in spwids:
-            LOGGER.info("Initialising %s column with %s. DDID is %d",
-                        colname, init_with, spw)
+            LOGGER.info("Initialising %s column with %s. DDID is %d", colname, init_with, spw)
             with closing(tab.query(f"DATA_DESC_ID=={spw:d}")) as tab_spw:
                 nrows = tab_spw.nrows()
                 chunk = rowchunk or max(nrows // 10, 1)
@@ -139,12 +143,15 @@ def addcol(msname: str, colname: str | None = None, shape: Sequence[int] | None 
                 for row0 in range(0, nrows, chunk):
                     nr = min(chunk, nrows - row0)
                     dshape[0] = nr
-                    LOGGER.info("Writing to column  %s (rows %d to %d)",
-                                colname, row0, row0 + nr - 1)
-                    tab_spw.putcol(colname,
-                                   np.full(dshape, init_with,
-                                              dtype=np.asarray(init_with).dtype),
-                                   row0, nr)
+                    LOGGER.info(
+                        "Writing to column  %s (rows %d to %d)", colname, row0, row0 + nr - 1
+                    )
+                    tab_spw.putcol(
+                        colname,
+                        np.full(dshape, init_with, dtype=np.asarray(init_with).dtype),
+                        row0,
+                        nr,
+                    )
 
     return "added"
 
@@ -152,10 +159,17 @@ def addcol(msname: str, colname: str | None = None, shape: Sequence[int] | None 
 #: Zero value of the right Python type for each casacore value type, used as
 #: the placeholder element when building a column description.
 _ZERO_VALUES = {
-    "complex": 0 + 0j, "dcomplex": 0 + 0j,
-    "float": 0.0, "double": 0.0,
-    "int": 0, "uint": 0, "short": 0, "ushort": 0, "int64": 0,
-    "bool": False, "boolean": False,
+    "complex": 0 + 0j,
+    "dcomplex": 0 + 0j,
+    "float": 0.0,
+    "double": 0.0,
+    "int": 0,
+    "uint": 0,
+    "short": 0,
+    "ushort": 0,
+    "int64": 0,
+    "bool": False,
+    "boolean": False,
     "string": "",
 }
 
@@ -168,6 +182,7 @@ def _zero_of(valuetype: str) -> Any:
 def _required_columns() -> frozenset:
     """Main-table columns the MSv2 standard requires."""
     from casacore.tables import required_ms_desc
+
     return frozenset(k for k in required_ms_desc() if not k.startswith("_"))
 
 
@@ -203,7 +218,8 @@ def delcol(msname: str, *colnames: str, force: bool = False) -> list[str]:
                 raise ValueError(
                     f"{name} is required by the MSv2 standard; removing it will "
                     f"make {msname} unreadable to other tools. Pass force=True if "
-                    "you really mean it.")
+                    "you really mean it."
+                )
             removable.append(name)
 
         if not removable:
@@ -230,18 +246,21 @@ def renamecol(msname: str, fromcol: str, tocol: str) -> None:
         if tocol in colnames:
             raise ValueError(f"{msname} already has a column {tocol!r}")
         if fromcol in _required_columns():
-            raise ValueError(
-                f"{fromcol} is required by the MSv2 standard and cannot be renamed"
-                )
+            raise ValueError(f"{fromcol} is required by the MSv2 standard and cannot be renamed")
         LOGGER.info("Renaming %s to %s in %s", fromcol, tocol, msname)
         tab.renamecol(fromcol, tocol)
 
 
-def sumcols(msname: str, col1: str | None = None, col2: str | None = None,
-            outcol: str | None = None, cols: Sequence[str] | None = None,
-            subtract: bool = False) -> None:
-    """ Add col1 to col2, or sum columns in 'cols' list.
-        If subtract, subtract col2 from col1
+def sumcols(
+    msname: str,
+    col1: str | None = None,
+    col2: str | None = None,
+    outcol: str | None = None,
+    cols: Sequence[str] | None = None,
+    subtract: bool = False,
+) -> None:
+    """Add col1 to col2, or sum columns in 'cols' list.
+    If subtract, subtract col2 from col1
     """
 
     with open_table(msname, readonly=False) as tab:
@@ -253,10 +272,12 @@ def sumcols(msname: str, col1: str | None = None, col2: str | None = None,
         for spw in spws:
             with closing(tab.query(f"DATA_DESC_ID=={spw:d}")) as tab_spw:
                 nrows = tab_spw.nrows()
-                rowchunk = nrows//10 if nrows > 10000 else nrows
+                rowchunk = nrows // 10 if nrows > 10000 else nrows
                 for row0 in range(0, nrows, rowchunk):
-                    nr = min(rowchunk, nrows-row0)
-                    LOGGER.info("Writing to column  %s (rows %d to %d)", outcol, row0, row0+nr-1)
+                    nr = min(rowchunk, nrows - row0)
+                    LOGGER.info(
+                        "Writing to column  %s (rows %d to %d)", outcol, row0, row0 + nr - 1
+                    )
                     if subtract:
                         data = tab_spw.getcol(col1, row0, nr) - tab_spw.getcol(col2, row0, nr)
                     else:
@@ -270,7 +291,7 @@ def sumcols(msname: str, col1: str | None = None, col2: str | None = None,
 
 def copycol(msname: str, fromcol: str, tocol: str) -> None:
     """
-        Copy data from one column to another
+    Copy data from one column to another
     """
 
     with open_table(msname, readonly=False) as tab:
@@ -281,9 +302,9 @@ def copycol(msname: str, fromcol: str, tocol: str) -> None:
         for spw in spws:
             with closing(tab.query(f"DATA_DESC_ID=={spw:d}")) as tab_spw:
                 nrows = tab_spw.nrows()
-                rowchunk = nrows//10 if nrows > 5000 else nrows
+                rowchunk = nrows // 10 if nrows > 5000 else nrows
                 for row0 in range(0, nrows, rowchunk):
-                    nr = min(rowchunk, nrows-row0)
+                    nr = min(rowchunk, nrows - row0)
                     data = tab_spw.getcol(fromcol, row0, nr)
                     tab_spw.putcol(tocol, data, row0, nr)
 
@@ -293,15 +314,22 @@ def compute_vis_noise(msname: str, sefd: float, spw_id: int = 0) -> float:
 
     with open_table(msname) as tab, open_table(msname + "::SPECTRAL_WINDOW") as spwtab:
         freq0 = spwtab.getcol("CHAN_FREQ")[spw_id, 0]
-        wavelength = 300e+6/freq0
+        wavelength = 300e6 / freq0
         bw = spwtab.getcol("CHAN_WIDTH")[spw_id, 0]
         dt = tab.getcol("EXPOSURE", 0, 1)[0]
-        dtf = (tab.getcol("TIME", tab.nrows()-1, 1)-tab.getcol("TIME", 0, 1))[0]
+        dtf = (tab.getcol("TIME", tab.nrows() - 1, 1) - tab.getcol("TIME", 0, 1))[0]
 
-    LOGGER.info("%s freq %.2f MHz (lambda=%.2fm), bandwidth %.2g kHz, %.2fs integrations, %.2fh synthesis",
-                msname, freq0*1e-6, wavelength, bw*1e-3, dt, dtf/3600)
-    noise = sefd/math.sqrt(abs(2*bw*dt))
-    LOGGER.info("SEFD of %.2f Jy gives per-visibility noise of %.2f mJy", sefd, noise*1000)
+    LOGGER.info(
+        "%s freq %.2f MHz (lambda=%.2fm), bandwidth %.2g kHz, %.2fs integrations, %.2fh synthesis",
+        msname,
+        freq0 * 1e-6,
+        wavelength,
+        bw * 1e-3,
+        dt,
+        dtf / 3600,
+    )
+    noise = sefd / math.sqrt(abs(2 * bw * dt))
+    LOGGER.info("SEFD of %.2f Jy gives per-visibility noise of %.2f mJy", sefd, noise * 1000)
 
     return noise
 
@@ -312,20 +340,23 @@ def verify_antpos(msname: str, fix: bool = False, hemisphere: int | None = None)
     in the Eastern, or else tries to find observatory name using MS and casacore.measures."""
 
     if not hemisphere:
-        with open_table(msname+"::OBSERVATION") as obstab:
+        with open_table(msname + "::OBSERVATION") as obstab:
             obs = obstab.getcol("TELESCOPE_NAME")[0]
         LOGGER.info("observatory is %s", obs)
         try:
             hemisphere = 1 if _measures().observatory(obs)["m0"]["value"] > 0 else -1
         except Exception:
             traceback.print_exc()
-            LOGGER.warning("%s is unknown, or casacore.measures is missing. Will not verify antenna positions.", obs)
+            LOGGER.warning(
+                "%s is unknown, or casacore.measures is missing. Will not verify antenna positions.",
+                obs,
+            )
             return
     LOGGER.info("antenna Y positions should be of sign %+d", hemisphere)
 
-    with open_table(msname+"::ANTENNA", readonly=False) as anttab:
+    with open_table(msname + "::ANTENNA", readonly=False) as anttab:
         pos = anttab.getcol("POSITION")
-        wrong = pos[:,1]<0 if hemisphere>0 else pos[:,1]>0
+        wrong = pos[:, 1] < 0 if hemisphere > 0 else pos[:, 1] > 0
         nw = sum(wrong)
 
         if nw:
@@ -335,19 +366,26 @@ def verify_antpos(msname: str, fix: bool = False, hemisphere: int | None = None)
                     "your coordinate conversions (from UVFITS?), or run "
                     "verify_antpos(fix=True)"
                 )
-            pos[wrong,1] *= -1
+            pos[wrong, 1] *= -1
             anttab.putcol("POSITION", pos)
-            LOGGER.warning("%s/ANTENNA: %s incorrect antenna positions were adjusted (Y sign flipped)", msname, nw)
+            LOGGER.warning(
+                "%s/ANTENNA: %s incorrect antenna positions were adjusted (Y sign flipped)",
+                msname,
+                nw,
+            )
         else:
             LOGGER.info("%s/ANTENNA: all antenna positions appear to have correct Y sign", msname)
 
 
-def addnoise(msname: str, column: str = "MODEL_DATA",
-             noise: float | Sequence[float] = 0,
-             sefd: float | Sequence[float] = 551,
-             rowchunk: int | None = None,
-             addToCol: str | None = None,
-             spw_id: int | None = None) -> None:
+def addnoise(
+    msname: str,
+    column: str = "MODEL_DATA",
+    noise: float | Sequence[float] = 0,
+    sefd: float | Sequence[float] = 551,
+    rowchunk: int | None = None,
+    addToCol: str | None = None,
+    spw_id: int | None = None,
+) -> None:
     """Add Gaussian noise to a visibility column.
 
     Args:
@@ -380,20 +418,28 @@ def addnoise(msname: str, column: str = "MODEL_DATA",
                 if multi_chan_noise and noise.shape[1] not in (1, nchan):
                     raise ValueError(
                         f"noise has {noise.shape[1]:d} channels but DATA_DESC_ID {spw:d} has "
-                        f"{nchan:d}")
+                        f"{nchan:d}"
+                    )
 
                 chunk = rowchunk or max(nrows // 10, 1)
 
                 for row0 in range(0, nrows, chunk):
                     nr = min(chunk, nrows - row0)
-                    data = (np.random.randn(nr, nchan, ncor)
-                            + 1j * np.random.randn(nr, nchan, ncor))
+                    data = np.random.randn(nr, nchan, ncor) + 1j * np.random.randn(nr, nchan, ncor)
                     data *= noise
 
                     if addToCol:
                         data += tab_spw.getcol(addToCol, row0, nr)
-                        LOGGER.info("%s + noise --> %s (rows %d to %d)", addToCol, column, row0, row0+nr-1)
+                        LOGGER.info(
+                            "%s + noise --> %s (rows %d to %d)",
+                            addToCol,
+                            column,
+                            row0,
+                            row0 + nr - 1,
+                        )
                     else:
-                        LOGGER.info("Adding noise to column %s (rows %d to %d)", column, row0, row0+nr-1)
+                        LOGGER.info(
+                            "Adding noise to column %s (rows %d to %d)", column, row0, row0 + nr - 1
+                        )
 
                     tab_spw.putcol(column, data, row0, nr)

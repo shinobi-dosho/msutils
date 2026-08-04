@@ -11,6 +11,7 @@ several SPWs, several scans per field, multiple observing intents and a
 non-trivial ``DATA_DESC_ID`` -> ``(SPW, POL)`` mapping. Those are exactly the
 cases the old ``summary()`` got wrong, so the fixture has to exercise them.
 """
+
 from __future__ import annotations
 
 import os
@@ -30,9 +31,20 @@ DEFAULT_INTENTS = [
 ]
 
 
-def make_ms(path, nant=4, ntime=3, nchan=4, nspw=2, nfield=3, nscan_per_field=2,
-            dt=8.0, corr_type=(9, 10, 11, 12), telescope="MEERKAT",
-            flag_every=3, add_weight_spectrum=False):
+def make_ms(
+    path,
+    nant=4,
+    ntime=3,
+    nchan=4,
+    nspw=2,
+    nfield=3,
+    nscan_per_field=2,
+    dt=8.0,
+    corr_type=(9, 10, 11, 12),
+    telescope="MEERKAT",
+    flag_every=3,
+    add_weight_spectrum=False,
+):
     """Write a synthetic MSv2 at ``path`` and return the path.
 
     Args:
@@ -54,8 +66,9 @@ def make_ms(path, nant=4, ntime=3, nchan=4, nspw=2, nfield=3, nscan_per_field=2,
     ncorr = len(corr_type)
     coldescs = [makearrcoldesc("DATA", 0 + 0j, shape=[nchan, ncorr], valuetype="complex")]
     if add_weight_spectrum:
-        coldescs.append(makearrcoldesc("WEIGHT_SPECTRUM", 0.0, shape=[nchan, ncorr],
-                                       valuetype="float"))
+        coldescs.append(
+            makearrcoldesc("WEIGHT_SPECTRUM", 0.0, shape=[nchan, ncorr], valuetype="float")
+        )
     default_ms(path, maketabdesc(coldescs))
 
     _write_antenna(path, nant)
@@ -67,9 +80,19 @@ def make_ms(path, nant=4, ntime=3, nchan=4, nspw=2, nfield=3, nscan_per_field=2,
     _write_state(path, nfield)
 
     baselines = [(i, j) for i in range(nant) for j in range(i + 1, nant)]
-    tstart, tend = _write_main(path, baselines, nspw, nchan, ncorr, nfield,
-                               nscan_per_field, ntime, dt, flag_every,
-                               add_weight_spectrum)
+    tstart, tend = _write_main(
+        path,
+        baselines,
+        nspw,
+        nchan,
+        ncorr,
+        nfield,
+        nscan_per_field,
+        ntime,
+        dt,
+        flag_every,
+        add_weight_spectrum,
+    )
     # Written last so TIME_RANGE actually matches the data, inter-scan gaps
     # and all.
     _write_observation(path, telescope, tstart, tend)
@@ -80,8 +103,12 @@ def _write_antenna(path, nant):
     with table(path + "::ANTENNA", readonly=False, ack=False) as tab:
         tab.addrows(nant)
         # Roughly MeerKAT-like ITRF positions, spread over a ~1 km footprint.
-        pos = np.array([[5109360.0 + i * 137.0, 2006852.0 + i * 91.0, -3238948.0 - i * 73.0]
-                        for i in range(nant)])
+        pos = np.array(
+            [
+                [5109360.0 + i * 137.0, 2006852.0 + i * 91.0, -3238948.0 - i * 73.0]
+                for i in range(nant)
+            ]
+        )
         tab.putcol("NAME", [f"m{i:03d}" for i in range(nant)])
         tab.putcol("STATION", [f"m{i:03d}" for i in range(nant)])
         tab.putcol("POSITION", pos)
@@ -111,7 +138,7 @@ def _write_feed(path, nant, nspw, corr_type):
                 tab.putcell("FEED_ID", row, 0)
                 tab.putcell("SPECTRAL_WINDOW_ID", row, spw)
                 tab.putcell("TIME", row, T0)
-                tab.putcell("INTERVAL", row, 1e30)      # valid for all time
+                tab.putcell("INTERVAL", row, 1e30)  # valid for all time
                 tab.putcell("NUM_RECEPTORS", row, nrec)
                 tab.putcell("BEAM_ID", row, -1)
                 tab.putcell("BEAM_OFFSET", row, np.zeros((nrec, 2)))
@@ -188,15 +215,25 @@ def _write_state(path, nfield):
     """One STATE row per field, each with a distinct observing intent."""
     with table(path + "::STATE", readonly=False, ack=False) as tab:
         tab.addrows(nfield)
-        tab.putcol("OBS_MODE", [DEFAULT_INTENTS[f % len(DEFAULT_INTENTS)]
-                                for f in range(nfield)])
+        tab.putcol("OBS_MODE", [DEFAULT_INTENTS[f % len(DEFAULT_INTENTS)] for f in range(nfield)])
         tab.putcol("SIG", np.ones(nfield, bool))
         tab.putcol("REF", np.zeros(nfield, bool))
         tab.putcol("FLAG_ROW", np.zeros(nfield, bool))
 
 
-def _write_main(path, baselines, nspw, nchan, ncorr, nfield, nscan_per_field,
-                ntime, dt, flag_every, add_weight_spectrum):
+def _write_main(
+    path,
+    baselines,
+    nspw,
+    nchan,
+    ncorr,
+    nfield,
+    nscan_per_field,
+    ntime,
+    dt,
+    flag_every,
+    add_weight_spectrum,
+):
     time, a1, a2, ddid, field, scan, state = [], [], [], [], [], [], []
     scan_no = 0
     stamp = T0
@@ -205,7 +242,7 @@ def _write_main(path, baselines, nspw, nchan, ncorr, nfield, nscan_per_field,
             scan_no += 1
             for _t in range(ntime):
                 for dd in range(nspw):
-                    for (p, q) in baselines:
+                    for p, q in baselines:
                         time.append(stamp)
                         a1.append(p)
                         a2.append(q)
@@ -235,8 +272,12 @@ def _write_main(path, baselines, nspw, nchan, ncorr, nfield, nscan_per_field,
         for col in ("ARRAY_ID", "OBSERVATION_ID", "PROCESSOR_ID", "FEED1", "FEED2"):
             tab.putcol(col, np.zeros(nrow, np.int32))
         tab.putcol("UVW", rng.normal(0.0, 800.0, (nrow, 3)))
-        tab.putcol("DATA", (rng.normal(size=(nrow, nchan, ncorr))
-                            + 1j * rng.normal(size=(nrow, nchan, ncorr))).astype(np.complex64))
+        tab.putcol(
+            "DATA",
+            (
+                rng.normal(size=(nrow, nchan, ncorr)) + 1j * rng.normal(size=(nrow, nchan, ncorr))
+            ).astype(np.complex64),
+        )
         flag = np.zeros((nrow, nchan, ncorr), bool)
         if flag_every:
             flag[::flag_every] = True

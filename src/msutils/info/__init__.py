@@ -7,17 +7,18 @@ name as well as by id::
     import msutils
 
     info = msutils.msinfo("obs.ms")
-    print(info.render())                       # listobs-style report
+    print(info.render())  # listobs-style report
 
-    info.fields["PKS1934-638"].scan_numbers    # [1, 2]
-    info.spws[0].chan_width[0]                 # 10000000.0
-    info.antennas["m003"].latitude             # -30.71...
-    info.to_dict()                             # stable, versioned JSON
+    info.fields["PKS1934-638"].scan_numbers  # [1, 2]
+    info.spws[0].chan_width[0]  # 10000000.0
+    info.antennas["m003"].latitude  # -30.71...
+    info.to_dict()  # stable, versioned JSON
 
 This replaces the older :func:`msutils.summary`, which returned an unstructured
 dict of ALL-CAPS keys, misreported observing intents and scan durations, and
 scanned the main table once per field and once per scan.
 """
+
 from __future__ import annotations
 
 import os
@@ -89,18 +90,21 @@ def detect_format(path: str) -> str:
         for entry in sorted(os.listdir(path)):
             child = os.path.join(path, entry)
             if os.path.isdir(child) and any(
-                    os.path.exists(os.path.join(child, m))
-                    for m in (".zgroup", ".zattrs", "zarr.json")):
+                os.path.exists(os.path.join(child, m)) for m in (".zgroup", ".zattrs", "zarr.json")
+            ):
                 return "MSv4"
-    except OSError:                            # pragma: no cover
+    except OSError:  # pragma: no cover
         pass
-    raise ValueError(
-        f"{path!r} is neither a casacore MSv2 table nor a zarr MSv4 processing "
-        "set")
+    raise ValueError(f"{path!r} is neither a casacore MSv2 table nor a zarr MSv4 processing set")
 
 
-def msinfo(path: str, level: str = "full", outfile: str | None = None,
-           format: str | None = None, engine: str | None = None) -> MSInfo:
+def msinfo(
+    path: str,
+    level: str = "full",
+    outfile: str | None = None,
+    format: str | None = None,
+    engine: str | None = None,
+) -> MSInfo:
     """Collect structured metadata for the dataset at ``path``.
 
     Args:
@@ -128,14 +132,17 @@ def msinfo(path: str, level: str = "full", outfile: str | None = None,
     fmt = format or detect_format(path)
     if fmt == "MSv2" and engine in (None, "casacore"):
         from . import _msv2
+
         info = _msv2.read(path, level=level)
     elif fmt == "MSv2":
         # An MSv2 on disk, read through the MSv4 schema. `format` stays MSv2
         # because that is what is actually stored.
         from . import _msv4
+
         info = _msv4.read(path, level=level, engine=engine, format="MSv2")
     elif fmt == "MSv4":
         from . import _msv4
+
         info = _msv4.read(path, level=level, engine=engine)
     else:
         raise ValueError(f"unknown format {fmt!r}; expected 'MSv2' or 'MSv4'")

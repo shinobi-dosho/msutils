@@ -1,6 +1,7 @@
 """Tests for the new everyday tools: column removal, subsetting, averaging,
 flag versioning, disk usage, conformance checking and TaQL passthrough.
 """
+
 import os
 
 import numpy
@@ -14,6 +15,7 @@ from msutils.subset import subset
 # --------------------------------------------------------------------------
 # delcol / renamecol
 
+
 def test_delcol_removes_columns(ms):
     msutils.addcol(ms, "CORRECTED_DATA", clone="DATA")
     assert "CORRECTED_DATA" in msutils.msinfo(ms, level="meta").column_names
@@ -25,7 +27,7 @@ def test_delcol_removes_columns(ms):
 def test_delcol_multiple_and_missing(ms):
     msutils.addcol(ms, "MODEL_DATA", clone="DATA")
     removed = msutils.delcol(ms, "MODEL_DATA", "NOT_THERE")
-    assert removed == ["MODEL_DATA"]           # missing one skipped, not fatal
+    assert removed == ["MODEL_DATA"]  # missing one skipped, not fatal
 
 
 def test_delcol_protects_required_columns(ms):
@@ -71,12 +73,13 @@ def test_renamecol_validation(ms):
 # --------------------------------------------------------------------------
 # subset
 
+
 def test_subset_by_field(ms, tmp_path):
     out = str(tmp_path / "one_field.ms")
     subset(ms, out, fields=["DEEP_2"])
 
     info = msutils.msinfo(out)
-    assert info.nrows == 72                    # 1 field of 3
+    assert info.nrows == 72  # 1 field of 3
     assert {s.field_id for s in info.scans} == {2}
 
 
@@ -97,7 +100,7 @@ def test_subset_by_spw(ms, tmp_path):
     out = str(tmp_path / "one_spw.ms")
     subset(ms, out, spws=[1])
     info = msutils.msinfo(out)
-    assert info.nrows == 108                   # half the rows
+    assert info.nrows == 108  # half the rows
     assert {sid for s in info.scans for sid in s.spw_ids} == {1}
 
 
@@ -127,7 +130,7 @@ def test_subset_refuses_to_clobber(ms, tmp_path):
     subset(ms, out, fields=[0])
     with pytest.raises(FileExistsError, match="already exists"):
         subset(ms, out, fields=[0])
-    subset(ms, out, fields=[1], overwrite=True)     # explicit overwrite is fine
+    subset(ms, out, fields=[1], overwrite=True)  # explicit overwrite is fine
     assert msutils.msinfo(out).nrows == 72
 
 
@@ -144,11 +147,12 @@ def test_subset_unknown_field(ms, tmp_path):
 # --------------------------------------------------------------------------
 # average (needs codex-africanus)
 
+
 @pytest.fixture
 def africanus():
     return pytest.importorskip(
-        "africanus.averaging",
-        reason="codex-africanus not installed (msutils[average])")
+        "africanus.averaging", reason="codex-africanus not installed (msutils[average])"
+    )
 
 
 def test_average_time_and_channel(ms, tmp_path, africanus):
@@ -159,7 +163,7 @@ def test_average_time_and_channel(ms, tmp_path, africanus):
     # 3 timestamps of 8 s collapse into one bin
     assert after.nrows == before.nrows / 3
     assert after.spws[0].num_chan == 2
-    assert after.nscans == before.nscans       # scans are never merged
+    assert after.nscans == before.nscans  # scans are never merged
     assert check(out).ok
 
 
@@ -205,9 +209,10 @@ def test_average_reconciles_inconsistent_flags(ms, tmp_path, africanus):
     FLAG_ROW left False.
     """
     from casacore.tables import table
+
     with table(ms, readonly=False, ack=False) as tab:
         flag_row = numpy.zeros(tab.nrows(), bool)
-        flag_row[1] = True                     # row-flagged, but FLAG says otherwise
+        flag_row[1] = True  # row-flagged, but FLAG says otherwise
         tab.putcol("FLAG_ROW", flag_row)
 
     out = str(tmp_path / "mixed_flags.ms")
@@ -218,11 +223,13 @@ def test_average_reconciles_inconsistent_flags(ms, tmp_path, africanus):
 # --------------------------------------------------------------------------
 # flag versions
 
+
 def test_flag_backup_and_restore(ms):
     original = _getcol(ms, "FLAG")
     flag_backup(ms, name="pristine", description="before anything")
 
     from casacore.tables import table
+
     with table(ms, readonly=False, ack=False) as tab:
         tab.putcol("FLAG", numpy.ones_like(original))
     assert _getcol(ms, "FLAG").all()
@@ -257,7 +264,7 @@ def test_flag_backup_refuses_to_clobber(ms):
     flag_backup(ms, name="v1")
     with pytest.raises(FileExistsError, match="already exists"):
         flag_backup(ms, name="v1")
-    flag_backup(ms, name="v1", overwrite=True)      # explicit is fine
+    flag_backup(ms, name="v1", overwrite=True)  # explicit is fine
 
 
 def test_flag_delete(ms):
@@ -279,6 +286,7 @@ def test_flag_restore_rejects_row_count_mismatch(ms, tmp_path):
     subset(ms, smaller, fields=[0])
     # move the version next to the smaller MS to simulate a stale backup
     import shutil
+
     shutil.copytree(ms + ".flagversions", smaller + ".flagversions")
     with pytest.raises(ValueError, match="the MS has changed"):
         flag_restore(smaller, "v1")
@@ -297,6 +305,7 @@ def test_no_versions_for_fresh_ms(ms):
 
 # --------------------------------------------------------------------------
 # du
+
 
 def test_du_accounts_for_the_bytes(ms):
     usage = du(ms)
@@ -324,6 +333,7 @@ def test_du_render_and_dict(ms):
 # --------------------------------------------------------------------------
 # check
 
+
 def test_check_passes_on_a_valid_ms(ms):
     report = check(ms)
     assert report.ok
@@ -341,9 +351,10 @@ def test_check_reports_missing_column(ms):
 
 def test_check_reports_dangling_reference(ms):
     from casacore.tables import table
+
     with table(ms, readonly=False, ack=False) as tab:
         field = tab.getcol("FIELD_ID")
-        field[0] = 99                          # no such FIELD row
+        field[0] = 99  # no such FIELD row
         tab.putcol("FIELD_ID", field)
 
     report = check(ms)
@@ -364,6 +375,7 @@ def test_check_to_dict(ms):
 # --------------------------------------------------------------------------
 # taql passthrough
 
+
 def test_taql_returns_arrays(ms):
     result = taql("SELECT DISTINCT FIELD_ID FROM $1", ms)
     assert sorted(result["FIELD_ID"].tolist()) == [0, 1, 2]
@@ -382,5 +394,6 @@ def test_taql_column_selection(ms):
 
 def _getcol(msname, col):
     from casacore.tables import table
+
     with table(msname, ack=False) as tab:
         return tab.getcol(col)

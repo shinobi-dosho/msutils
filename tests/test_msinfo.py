@@ -5,6 +5,7 @@ the old ``summary()`` got wrong -- several fields with distinct intents,
 several scans per field, several SPWs, and a real DATA_DESCRIPTION mapping --
 so these assert the corrected behaviour rather than just "it runs".
 """
+
 import json
 import math
 
@@ -31,13 +32,14 @@ def info(base_ms):
 # --------------------------------------------------------------------------
 # top-level facts
 
+
 def test_basic_counts(info):
     # 3 fields x 2 scans x 3 times x 2 spws x 6 baselines
     assert info.nrows == 3 * 2 * 3 * 2 * 6
     assert info.format == "MSv2"
     assert (info.nantennas, info.nfields, info.nspws, info.nscans) == (4, 3, 2, 6)
-    assert info.nbaselines == 6          # 4 antennas -> 6 cross-correlations
-    assert info.nchan_total == 8         # 2 SPWs x 4 channels
+    assert info.nbaselines == 6  # 4 antennas -> 6 cross-correlations
+    assert info.nchan_total == 8  # 2 SPWs x 4 channels
     assert info.size_bytes > 0
 
 
@@ -68,6 +70,7 @@ def test_flag_counts(info):
 # --------------------------------------------------------------------------
 # the things summary() got wrong
 
+
 def test_scan_duration_includes_final_integration(info):
     # 3 timestamps x 8 s. max(TIME) - min(TIME) is only 16 s; the scan really
     # covers 24 s. This is the bug that made summary() understate every scan.
@@ -85,7 +88,9 @@ def test_intents_are_resolved_per_field_not_dumped_raw(info):
     # Each field gets its own STATE row / intent. summary() returned the raw
     # OBS_MODE column for every field.
     assert info.fields["PKS1934-638"].intents == [
-        "CALIBRATE_BANDPASS#ON_SOURCE", "CALIBRATE_FLUX#ON_SOURCE"]
+        "CALIBRATE_BANDPASS#ON_SOURCE",
+        "CALIBRATE_FLUX#ON_SOURCE",
+    ]
     assert info.fields["J0217+0144"].intents == ["CALIBRATE_PHASE#ON_SOURCE"]
     assert info.fields["DEEP_2"].intents == ["OBSERVE_TARGET#ON_SOURCE"]
 
@@ -116,6 +121,7 @@ def test_polarization_setup(info):
 
 # --------------------------------------------------------------------------
 # addressability
+
 
 def test_fields_addressable_by_id_and_name(info):
     assert info.fields[0] is info.fields["PKS1934-638"]
@@ -161,6 +167,7 @@ def test_registry_is_a_sequence():
 # --------------------------------------------------------------------------
 # serialisation and rendering
 
+
 def test_to_dict_is_json_serialisable_and_versioned(info):
     payload = json.loads(info.to_json())
     assert payload["schema_version"] == SCHEMA_VERSION
@@ -185,8 +192,14 @@ def test_msinfo_outfile_argument(base_ms, tmp_path):
 
 def test_render_mentions_the_essentials(info):
     text = info.render()
-    for expected in ("MEERKAT", "PKS1934-638", "DEEP_2", "XX,XY,YX,YY",
-                     "Fields (3)", "Spectral windows (2)"):
+    for expected in (
+        "MEERKAT",
+        "PKS1934-638",
+        "DEEP_2",
+        "XX,XY,YX,YY",
+        "Fields (3)",
+        "Spectral windows (2)",
+    ):
         assert expected in text
     assert str(info) == text
 
@@ -201,13 +214,14 @@ def test_verbose_render_adds_detail(info):
 # --------------------------------------------------------------------------
 # levels
 
+
 def test_meta_level_skips_the_main_table(single_spw_ms):
     info = msutils.msinfo(single_spw_ms, level="meta")
-    assert info.nrows > 0                 # from table.nrows(), not a scan
-    assert info.nscans == 0               # no main-table pass, so no scans
-    assert info.nfields == 1              # subtables are still read
+    assert info.nrows > 0  # from table.nrows(), not a scan
+    assert info.nscans == 0  # no main-table pass, so no scans
+    assert info.nfields == 1  # subtables are still read
     assert info.nflagged is None
-    assert info.max_baseline > 0          # antenna geometry, no main table
+    assert info.max_baseline > 0  # antenna geometry, no main table
 
 
 def test_full_level_does_not_read_bulk_columns(base_ms):
@@ -236,6 +250,7 @@ def test_unflagged_ms(single_spw_ms):
 # --------------------------------------------------------------------------
 # format detection
 
+
 def test_detect_format_msv2(base_ms):
     assert detect_format(base_ms) == "MSv2"
 
@@ -261,6 +276,7 @@ def test_detect_format_zarr(tmp_path):
 
 # --------------------------------------------------------------------------
 # formatting helpers
+
 
 def test_coordinate_formatting():
     assert format_ra(0.0) == "00h00m00.000"

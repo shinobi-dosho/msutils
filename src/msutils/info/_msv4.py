@@ -27,6 +27,7 @@ Two mapping details worth knowing:
 * **Rows.** ``nrows`` is the equivalent MSv2 row count, ``time x baseline``
   summed over partitions -- an MSv4 has no rows of its own.
 """
+
 from __future__ import annotations
 
 import os
@@ -64,8 +65,7 @@ _STOKES_CODES = {label: code for code, label in STOKES_TYPES.items()}
 ENGINES = ("zarr", "xradio", "xarray-ms")
 
 
-def read(path: str, level: str = "full", engine: str | None = None,
-         format: str = "MSv4") -> MSInfo:
+def read(path: str, level: str = "full", engine: str | None = None, format: str = "MSv4") -> MSInfo:
     """Read MSv4-schema metadata at ``path``.
 
     Args:
@@ -79,6 +79,7 @@ def read(path: str, level: str = "full", engine: str | None = None,
             still an MSv2.
     """
     from ._msv2 import LEVELS, _directory_size, _max_antenna_separation
+
     if level not in LEVELS:
         raise ValueError(f"level must be one of {LEVELS}, got {level!r}")
 
@@ -104,7 +105,7 @@ def read(path: str, level: str = "full", engine: str | None = None,
     for partition in partitions:
         dataset = partition.ds
         spw = _spw(dataset, spws)
-        _polarization(dataset, pols)           # registers the setup in `pols`
+        _polarization(dataset, pols)  # registers the setup in `pols`
         ntime = dataset.sizes.get("time", 0)
         nbaseline = dataset.sizes.get("baseline_id", 0)
         nrows += ntime * nbaseline
@@ -114,8 +115,7 @@ def read(path: str, level: str = "full", engine: str | None = None,
         intervals.add(round(interval, 6))
 
         if level != "meta":
-            _fold_partition(partition, times, interval, spw, fields, scans,
-                            nbaseline)
+            _fold_partition(partition, times, interval, spw, fields, scans, nbaseline)
 
         if level == "data":
             flagged, total = _count_flags(dataset)
@@ -129,17 +129,17 @@ def read(path: str, level: str = "full", engine: str | None = None,
     # there is no DATA_DESCRIPTION indirection to represent; synthesise the
     # 1:1 mapping so consumers can treat both formats alike.
     info.data_descriptions = Registry(
-        [DataDescription(id=s.id, spw_id=s.id, pol_id=0) for s in info.spws])
+        [DataDescription(id=s.id, spw_id=s.id, pol_id=0) for s in info.spws]
+    )
     info.fields = Registry(sorted(fields.values(), key=lambda f: f.id))
     info.scans = Registry([scans[n] for n in sorted(scans)], key="number")
     info.integration_times = sorted(intervals)
     info.nflagged = nflagged
     info.nvisibilities = nvis
-    info.nbaselines = max(
-        (p.ds.sizes.get("baseline_id", 0) for p in partitions), default=0)
+    info.nbaselines = max((p.ds.sizes.get("baseline_id", 0) for p in partitions), default=0)
     info.max_baseline = _max_antenna_separation(
-        info.antennas, [(a.id, b.id) for a in info.antennas
-                        for b in info.antennas if a.id < b.id])
+        info.antennas, [(a.id, b.id) for a in info.antennas for b in info.antennas if a.id < b.id]
+    )
 
     if len(info.scans):
         info.time_start = min(s.time_start for s in info.scans)
@@ -156,8 +156,7 @@ def _open(path: str, engine: str | None) -> tuple:
         raise ValueError(f"engine must be one of {ENGINES}, got {engine!r}")
 
     candidates = [engine] if engine else list(ENGINES)
-    openers = {"zarr": _open_zarr, "xradio": _open_xradio,
-               "xarray-ms": _open_xarray_ms}
+    openers = {"zarr": _open_zarr, "xradio": _open_xradio, "xarray-ms": _open_xarray_ms}
     failures = []
     for name in candidates:
         try:
@@ -165,7 +164,7 @@ def _open(path: str, engine: str | None) -> tuple:
         except ImportError as exc:
             failures.append(f"{name}: {exc}")
             continue
-        except Exception as exc:               # unreadable by this engine
+        except Exception as exc:  # unreadable by this engine
             failures.append("{}: {}".format(name, str(exc).split("\n")[0]))
             continue
         if nodes:
@@ -176,8 +175,10 @@ def _open(path: str, engine: str | None) -> tuple:
     raise ValueError(
         "could not read {!r} as an MSv4-schema dataset. Tried:\n  {}\n"
         "Reading MSv4 needs 'pip install msutils[msv4]'; reading an MSv2 "
-        "through the MSv4 schema needs 'pip install msutils[xarray-ms]'."
-        .format(path, "\n  ".join(failures)))
+        "through the MSv4 schema needs 'pip install msutils[xarray-ms]'.".format(
+            path, "\n  ".join(failures)
+        )
+    )
 
 
 def _open_zarr(path: str) -> tuple:
@@ -188,13 +189,14 @@ def _open_zarr(path: str) -> tuple:
     """
     import xarray
 
-    names = sorted(entry for entry in os.listdir(path)
-                   if os.path.isdir(os.path.join(path, entry)))
+    names = sorted(entry for entry in os.listdir(path) if os.path.isdir(os.path.join(path, entry)))
     nodes, labels = [], []
     for name in names:
         child = os.path.join(path, name)
-        if not any(os.path.exists(os.path.join(child, marker))
-                   for marker in (".zgroup", ".zattrs", "zarr.json")):
+        if not any(
+            os.path.exists(os.path.join(child, marker))
+            for marker in (".zgroup", ".zattrs", "zarr.json")
+        ):
             continue
         nodes.append(xarray.open_datatree(child, engine="zarr"))
         labels.append(name)
@@ -224,8 +226,7 @@ def _open_xarray_ms(path: str) -> tuple:
     return [tree[name] for name in names], names
 
 
-def _fold_partition(partition, times, interval, spw, fields, scans,
-                    nbaseline) -> None:
+def _fold_partition(partition, times, interval, spw, fields, scans, nbaseline) -> None:
     """Accumulate this partition's fields and scans into the shared model."""
     dataset = partition.ds
     field_names = _coord_strings(dataset, "field_name", len(times))
@@ -238,8 +239,12 @@ def _fold_partition(partition, times, interval, spw, fields, scans,
         field = fields.get(name)
         if field is None:
             field = fields[name] = Field(
-                id=len(fields), name=name, phase_centre=phase_centre,
-                ref_frame=frame, intents=list(intents))
+                id=len(fields),
+                name=name,
+                phase_centre=phase_centre,
+                ref_frame=frame,
+                intents=list(intents),
+            )
             field.time_start = timestamp
             field.time_end = timestamp
         field.time_start = min(field.time_start, timestamp)
@@ -253,9 +258,14 @@ def _fold_partition(partition, times, interval, spw, fields, scans,
         scan = scans.get(scan_number)
         if scan is None:
             scan = scans[scan_number] = Scan(
-                number=scan_number, field_id=field.id, field_name=name,
-                time_start=timestamp, time_end=timestamp, interval=interval,
-                intents=list(intents))
+                number=scan_number,
+                field_id=field.id,
+                field_name=name,
+                time_start=timestamp,
+                time_end=timestamp,
+                interval=interval,
+                intents=list(intents),
+            )
         scan.time_start = min(scan.time_start, timestamp)
         scan.time_end = max(scan.time_end, timestamp)
         scan.nrows += nbaseline
@@ -269,27 +279,33 @@ def _read_antennas(partition) -> list[Antenna]:
     """Antennas from a partition's ``antenna_xds`` sub-dataset."""
     try:
         antenna_xds = partition["antenna_xds"].ds
-    except KeyError:                           # pragma: no cover - malformed set
+    except KeyError:  # pragma: no cover - malformed set
         return []
 
     names = _values(antenna_xds, "antenna_name")
     stations = _values(antenna_xds, "station_name")
     mounts = _values(antenna_xds, "mount")
     positions = np.atleast_2d(np.asarray(antenna_xds.ANTENNA_POSITION.values))
-    diameters = (np.asarray(antenna_xds.ANTENNA_DISH_DIAMETER.values)
-                 if "ANTENNA_DISH_DIAMETER" in antenna_xds else None)
+    diameters = (
+        np.asarray(antenna_xds.ANTENNA_DISH_DIAMETER.values)
+        if "ANTENNA_DISH_DIAMETER" in antenna_xds
+        else None
+    )
 
     antennas = []
     for i, name in enumerate(names):
-        antennas.append(Antenna(
-            id=i,
-            name=str(name),
-            station=str(stations[i]) if i < len(stations) else "",
-            mount=str(mounts[i]) if i < len(mounts) else "",
-            position=tuple(float(v) for v in positions[i]),
-            dish_diameter=(float(diameters[i]) if diameters is not None
-                           and i < len(diameters) else 0.0),
-        ))
+        antennas.append(
+            Antenna(
+                id=i,
+                name=str(name),
+                station=str(stations[i]) if i < len(stations) else "",
+                mount=str(mounts[i]) if i < len(mounts) else "",
+                position=tuple(float(v) for v in positions[i]),
+                dish_diameter=(
+                    float(diameters[i]) if diameters is not None and i < len(diameters) else 0.0
+                ),
+            )
+        )
     return antennas
 
 
@@ -300,7 +316,7 @@ def _read_observation(partition, info: MSInfo) -> Observation:
         telescopes = _values(antenna_xds, "telescope_name")
         if len(telescopes):
             observation.telescope = str(telescopes[0])
-    except KeyError:                           # pragma: no cover
+    except KeyError:  # pragma: no cover
         pass
 
     obs_info = partition.ds.attrs.get("observation_info") or {}
@@ -328,8 +344,11 @@ def _spw(dataset, spws: dict[str, SpectralWindow]) -> SpectralWindow:
         num_chan=len(channels),
         chan_freq=[float(f) for f in channels],
         chan_width=[width] * len(channels),
-        ref_frequency=float(_quantity(attrs.get("reference_frequency"),
-                                      default=channels[0] if len(channels) else 0.0)),
+        ref_frequency=float(
+            _quantity(
+                attrs.get("reference_frequency"), default=channels[0] if len(channels) else 0.0
+            )
+        ),
         total_bandwidth=width * len(channels),
         meas_freq_ref=_frame_code(attrs.get("observer")),
     )
@@ -342,8 +361,10 @@ def _polarization(dataset, pols: dict[str, Polarization]) -> Polarization:
     key = ",".join(labels)
     if key not in pols:
         pols[key] = Polarization(
-            id=len(pols), num_corr=len(labels),
-            corr_type=[_STOKES_CODES.get(label, 0) for label in labels])
+            id=len(pols),
+            num_corr=len(labels),
+            corr_type=[_STOKES_CODES.get(label, 0) for label in labels],
+        )
     return pols[key]
 
 
@@ -374,7 +395,7 @@ def _count_flags(dataset) -> tuple:
     flag = dataset.FLAG.data
     total = int(np.prod(dataset.FLAG.shape))
     flagged = flag.sum()
-    if hasattr(flagged, "compute"):            # dask-backed
+    if hasattr(flagged, "compute"):  # dask-backed
         flagged = flagged.compute()
     return int(flagged), total
 
@@ -397,11 +418,12 @@ def _quantity(value: Any, default: float = 0.0) -> float:
 def _frame_code(observer: Any) -> int:
     """Spectral frame name -> the MEAS_FREQ_REF code the model expects."""
     from ._model import FREQ_FRAMES
+
     name = str(observer or "TOPO").upper()
     for code, label in FREQ_FRAMES.items():
         if label.upper() == name:
             return code
-    return 5                                   # TOPO
+    return 5  # TOPO
 
 
 def _intents(dataset) -> list[str]:
@@ -437,7 +459,7 @@ def _scan_number(scan_names: list[str], index: int) -> int:
     try:
         return int(name)
     except (TypeError, ValueError):
-        return abs(hash(name)) % (10 ** 6)
+        return abs(hash(name)) % (10**6)
 
 
 def _mjd_seconds(times: np.ndarray) -> np.ndarray:

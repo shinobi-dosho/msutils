@@ -3,6 +3,7 @@
 The help and version paths need no MS; the rest run against the synthetic MS
 from the `ms` fixture.
 """
+
 import json
 
 import pytest
@@ -13,9 +14,22 @@ from msutils.cli import cli
 #: Every command the CLI exposes. Kept exhaustive so a new command that is
 #: never wired into the group is caught here.
 COMMANDS = [
-    "info", "summary", "addcol", "delcol", "renamecol", "copycol", "sumcols",
-    "addnoise", "subset", "average", "flagstats", "flags", "du", "check",
-    "taql", "convert",
+    "info",
+    "summary",
+    "addcol",
+    "delcol",
+    "renamecol",
+    "copycol",
+    "sumcols",
+    "addnoise",
+    "subset",
+    "average",
+    "flagstats",
+    "flags",
+    "du",
+    "check",
+    "taql",
+    "convert",
 ]
 
 
@@ -33,6 +47,7 @@ def test_cli_help_lists_every_command():
 def test_no_undocumented_commands():
     """The listing and COMMANDS must not drift apart."""
     from msutils.cli import cli as group
+
     assert sorted(group.commands) == sorted(COMMANDS)
 
 
@@ -51,6 +66,7 @@ def test_every_subcommand_has_help(command):
 
 # --------------------------------------------------------------------------
 # metadata
+
 
 def test_cli_info(ms):
     result = _run("info", ms)
@@ -92,6 +108,7 @@ def test_cli_summary_is_deprecated(ms):
 
 # --------------------------------------------------------------------------
 # columns
+
 
 def test_cli_addcol(ms):
     result = _run("addcol", ms, "MODEL_DATA", "--clone", "DATA")
@@ -144,6 +161,7 @@ def test_cli_addnoise(ms):
 # --------------------------------------------------------------------------
 # datasets
 
+
 def test_cli_subset(ms, tmp_path):
     out = str(tmp_path / "sub.ms")
     result = _run("subset", ms, out, "--field", "DEEP_2")
@@ -152,8 +170,7 @@ def test_cli_subset(ms, tmp_path):
 
 
 def test_cli_average(ms, tmp_path):
-    pytest.importorskip("africanus.averaging",
-                        reason="codex-africanus not installed")
+    pytest.importorskip("africanus.averaging", reason="codex-africanus not installed")
     out = str(tmp_path / "avg.ms")
     result = _run("average", ms, out, "--chan-bin", "2")
     assert result.exit_code == 0, result.output
@@ -161,6 +178,7 @@ def test_cli_average(ms, tmp_path):
 
 # --------------------------------------------------------------------------
 # flags
+
 
 def test_cli_flagstats(ms):
     result = _run("flagstats", ms)
@@ -186,6 +204,7 @@ def test_cli_flag_versions(ms):
 
 # --------------------------------------------------------------------------
 # diagnostics
+
 
 def test_cli_du(ms):
     result = _run("du", ms)

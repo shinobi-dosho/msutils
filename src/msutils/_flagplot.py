@@ -4,6 +4,7 @@ Isolated in its own module so that importing ``msutils.flagstats`` -- and
 computing statistics -- never needs matplotlib. Only :func:`plot_flagstats`
 does, which is why the import lives inside the function.
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -22,6 +23,7 @@ _MAX_BARS = 64
 def plot_flagstats(stats, outfile: str) -> str:
     """Write a 3x2 bar-chart summary of ``stats`` to ``outfile``."""
     import matplotlib as mpl
+
     mpl.use("Agg")
     import matplotlib.pyplot as plt
 

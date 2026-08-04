@@ -10,6 +10,7 @@ The directory layout follows CASA's ``flagmanager`` so the two sit side by
 side, but the version tables are written by casacore here and are only
 guaranteed to be readable by msutils.
 """
+
 from __future__ import annotations
 
 import datetime
@@ -46,8 +47,12 @@ class FlagVersion:
     nrows: int = 0
 
     def to_dict(self) -> dict:
-        return {"name": self.name, "description": self.description,
-                "path": self.path, "nrows": self.nrows}
+        return {
+            "name": self.name,
+            "description": self.description,
+            "path": self.path,
+            "nrows": self.nrows,
+        }
 
 
 def _versions_dir(msname: str) -> str:
@@ -58,8 +63,9 @@ def _version_path(msname: str, name: str) -> str:
     return os.path.join(_versions_dir(msname), "flags." + name)
 
 
-def flag_backup(msname: str, name: str | None = None,
-                description: str = "", overwrite: bool = False) -> FlagVersion:
+def flag_backup(
+    msname: str, name: str | None = None, description: str = "", overwrite: bool = False
+) -> FlagVersion:
     """Save the current FLAG/FLAG_ROW columns as a named version.
 
     Args:
@@ -74,8 +80,7 @@ def flag_backup(msname: str, name: str | None = None,
     # `None` means "pick a default"; an explicit empty string is a mistake and
     # is reported as one rather than silently becoming a timestamp.
     if name is None:
-        name = datetime.datetime.now(datetime.UTC).strftime(
-            "backup_%Y%m%d-%H%M%S")
+        name = datetime.datetime.now(datetime.UTC).strftime("backup_%Y%m%d-%H%M%S")
     _validate_name(name)
 
     target = _version_path(msname, name)
@@ -83,19 +88,18 @@ def flag_backup(msname: str, name: str | None = None,
         if not overwrite:
             raise FileExistsError(
                 f"flag version {name!r} already exists at {target}; pass overwrite=True "
-                "to replace it")
+                "to replace it"
+            )
         shutil.rmtree(target)
     os.makedirs(_versions_dir(msname), exist_ok=True)
 
     with open_table(msname) as tab:
         nrows = tab.nrows()
-        with query("SELECT {} FROM $1".format(", ".join(_FLAG_COLUMNS)),
-                   [tab]) as selection:
+        with query("SELECT {} FROM $1".format(", ".join(_FLAG_COLUMNS)), [tab]) as selection:
             copied = selection.copy(target, deep=True)
             copied.close()
 
-    version = FlagVersion(name=name, description=description, path=target,
-                          nrows=nrows)
+    version = FlagVersion(name=name, description=description, path=target, nrows=nrows)
     _append_to_list(msname, version)
     LOGGER.info("Saved flag version %r (%d rows) to %s", name, nrows, target)
     return version
@@ -112,13 +116,15 @@ def flag_restore(msname: str, name: str, rowchunk: int = 100000) -> FlagVersion:
     source = _version_path(msname, name)
     if not os.path.exists(source):
         raise FileNotFoundError(
-            f"no flag version {name!r} for {msname}; have {[v.name for v in flag_versions(msname)]}")
+            f"no flag version {name!r} for {msname}; have {[v.name for v in flag_versions(msname)]}"
+        )
 
     with open_table(msname, readonly=False) as tab, open_table(source) as saved:
         if saved.nrows() != tab.nrows():
             raise ValueError(
                 f"flag version {name!r} has {saved.nrows()} rows but {msname} has {tab.nrows()}; the MS has "
-                "changed since the backup")
+                "changed since the backup"
+            )
 
         nrows = tab.nrows()
         for row0 in range(0, nrows, rowchunk):
@@ -145,17 +151,17 @@ def flag_versions(msname: str) -> list[FlagVersion]:
         path = os.path.join(root, entry)
         if not os.path.isdir(path):
             continue
-        name = entry[len("flags."):]
+        name = entry[len("flags.") :]
         nrows = 0
         try:
             with open_table(path) as tab:
                 nrows = tab.nrows()
-        except RuntimeError:                   # not a readable table
+        except RuntimeError:  # not a readable table
             LOGGER.warning("Skipping unreadable flag version at %s", path)
             continue
-        versions.append(FlagVersion(name=name,
-                                    description=descriptions.get(name, ""),
-                                    path=path, nrows=nrows))
+        versions.append(
+            FlagVersion(name=name, description=descriptions.get(name, ""), path=path, nrows=nrows)
+        )
     return versions
 
 
@@ -173,14 +179,14 @@ def _validate_name(name: str) -> None:
     if not name or os.sep in name or name.startswith("."):
         raise ValueError(
             f"invalid flag version name {name!r}: must be non-empty, contain no "
-            "path separator, and not start with '.'")
+            "path separator, and not start with '.'"
+        )
 
 
 def _append_to_list(msname: str, version: FlagVersion) -> None:
     existing = {v.name: v.description for v in flag_versions(msname)}
     existing[version.name] = version.description
-    _rewrite_list(msname, [FlagVersion(name=n, description=d)
-                           for n, d in sorted(existing.items())])
+    _rewrite_list(msname, [FlagVersion(name=n, description=d) for n, d in sorted(existing.items())])
 
 
 def _rewrite_list(msname: str, versions: list[FlagVersion]) -> None:
@@ -188,7 +194,7 @@ def _rewrite_list(msname: str, versions: list[FlagVersion]) -> None:
     try:
         with open(path, "w", encoding="utf-8") as stream:
             stream.writelines(f"{version.name} : {version.description}\n" for version in versions)
-    except OSError as exc:                     # pragma: no cover - permissions
+    except OSError as exc:  # pragma: no cover - permissions
         LOGGER.warning("Could not update %s: %s", path, exc)
 
 

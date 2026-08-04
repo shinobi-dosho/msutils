@@ -7,6 +7,7 @@ Three small tools that round out the "what is actually in this MS" story that
 * :func:`check` -- does this MS satisfy the MSv2 standard?
 * :func:`taql` -- run an arbitrary TaQL query and get the columns back.
 """
+
 from __future__ import annotations
 
 import glob
@@ -46,8 +47,12 @@ class StorageGroup:
     nbytes: int = 0
 
     def to_dict(self) -> dict:
-        return {"name": self.name, "type": self.type, "columns": self.columns,
-                "nbytes": self.nbytes}
+        return {
+            "name": self.name,
+            "type": self.type,
+            "columns": self.columns,
+            "nbytes": self.nbytes,
+        }
 
 
 @dataclass
@@ -61,29 +66,34 @@ class DiskUsage:
     subtables: dict[str, int] = _field(default_factory=dict)
 
     def to_dict(self) -> dict:
-        return {"path": self.path, "total": self.total,
-                "main_table": self.main_table,
-                "storage": [s.to_dict() for s in self.storage],
-                "subtables": self.subtables}
+        return {
+            "path": self.path,
+            "total": self.total,
+            "main_table": self.main_table,
+            "storage": [s.to_dict() for s in self.storage],
+            "subtables": self.subtables,
+        }
 
     def render(self) -> str:
-        lines = [f"Disk usage: {self.path}",
-                 f"  total: {format_bytes(self.total)}"]
+        lines = [f"Disk usage: {self.path}", f"  total: {format_bytes(self.total)}"]
         lines.append("")
         lines.append("Main table by storage manager:")
         if not self.storage:
             lines.append("  (none)")
         for group in sorted(self.storage, key=lambda g: g.nbytes, reverse=True):
             share = (100.0 * group.nbytes / self.total) if self.total else 0.0
-            lines.append("  {:>10}  {:5.1f}%  {:<18} {}".format(
-                format_bytes(group.nbytes), share, group.type,
-                ", ".join(group.columns[:6])
-                + (", ..." if len(group.columns) > 6 else "")))
+            lines.append(
+                "  {:>10}  {:5.1f}%  {:<18} {}".format(
+                    format_bytes(group.nbytes),
+                    share,
+                    group.type,
+                    ", ".join(group.columns[:6]) + (", ..." if len(group.columns) > 6 else ""),
+                )
+            )
         if self.subtables:
             lines.append("")
             lines.append("Subtables:")
-            for name, size in sorted(self.subtables.items(),
-                                     key=lambda kv: kv[1], reverse=True):
+            for name, size in sorted(self.subtables.items(), key=lambda kv: kv[1], reverse=True):
                 lines.append(f"  {format_bytes(size):>10}  {name}")
         return "\n".join(lines)
 
@@ -99,15 +109,19 @@ def du(msname: str) -> DiskUsage:
     with open_table(msname) as tab:
         try:
             dminfo = tab.getdminfo()
-        except RuntimeError:                   # pragma: no cover - exotic tables
+        except RuntimeError:  # pragma: no cover - exotic tables
             dminfo = {}
 
     for name, spec in dminfo.items():
         seqnr = spec.get("SEQNR")
-        usage.storage.append(StorageGroup(
-            name=str(name), type=str(spec.get("TYPE", "")),
-            columns=sorted(spec.get("COLUMNS", [])),
-            nbytes=_manager_bytes(path, seqnr)))
+        usage.storage.append(
+            StorageGroup(
+                name=str(name),
+                type=str(spec.get("TYPE", "")),
+                columns=sorted(spec.get("COLUMNS", [])),
+                nbytes=_manager_bytes(path, seqnr),
+            )
+        )
 
     usage.main_table = sum(g.nbytes for g in usage.storage)
     for entry in sorted(os.listdir(path)):
@@ -127,8 +141,7 @@ class CheckReport:
     warnings: list[str] = _field(default_factory=list)
 
     def to_dict(self) -> dict:
-        return {"path": self.path, "ok": self.ok, "errors": self.errors,
-                "warnings": self.warnings}
+        return {"path": self.path, "ok": self.ok, "errors": self.errors, "warnings": self.warnings}
 
     def render(self) -> str:
         lines = [f"Check: {self.path}"]
@@ -136,9 +149,13 @@ class CheckReport:
             lines.append(f"  ERROR   {message}")
         for message in self.warnings:
             lines.append(f"  WARNING {message}")
-        lines.append("  {}".format(
-            "OK -- conforms to the MSv2 standard" if self.ok
-            else f"{len(self.errors)} error(s), {len(self.warnings)} warning(s)"))
+        lines.append(
+            "  {}".format(
+                "OK -- conforms to the MSv2 standard"
+                if self.ok
+                else f"{len(self.errors)} error(s), {len(self.warnings)} warning(s)"
+            )
+        )
         return "\n".join(lines)
 
     def __str__(self) -> str:
@@ -146,8 +163,15 @@ class CheckReport:
 
 
 #: Subtables the MSv2 standard requires.
-REQUIRED_SUBTABLES = ("ANTENNA", "DATA_DESCRIPTION", "FEED", "FIELD",
-                      "OBSERVATION", "POLARIZATION", "SPECTRAL_WINDOW")
+REQUIRED_SUBTABLES = (
+    "ANTENNA",
+    "DATA_DESCRIPTION",
+    "FEED",
+    "FIELD",
+    "OBSERVATION",
+    "POLARIZATION",
+    "SPECTRAL_WINDOW",
+)
 
 
 def check(msname: str) -> CheckReport:
@@ -162,18 +186,15 @@ def check(msname: str) -> CheckReport:
     from casacore.tables import required_ms_desc
 
     report = CheckReport(path=os.path.abspath(msname))
-    required_columns = sorted(k for k in required_ms_desc()
-                              if not k.startswith("_"))
+    required_columns = sorted(k for k in required_ms_desc() if not k.startswith("_"))
 
     with open_table(msname) as tab:
         present = set(tab.colnames())
         for column in required_columns:
             if column not in present:
-                report.errors.append(
-                    f"main table is missing required column {column}")
+                report.errors.append(f"main table is missing required column {column}")
         if "DATA" not in present and "FLOAT_DATA" not in present:
-            report.warnings.append(
-                "no DATA or FLOAT_DATA column: nothing to calibrate or image")
+            report.warnings.append("no DATA or FLOAT_DATA column: nothing to calibrate or image")
 
         keywords = set(tab.keywordnames())
         for subtable in REQUIRED_SUBTABLES:
@@ -192,16 +213,18 @@ def check(msname: str) -> CheckReport:
         if dd.spw_id not in spw_ids:
             report.errors.append(
                 f"DATA_DESC_ID {dd.id} points at SPECTRAL_WINDOW_ID {dd.spw_id}, which does "
-                "not exist")
+                "not exist"
+            )
         if dd.pol_id not in pol_ids:
             report.errors.append(
-                f"DATA_DESC_ID {dd.id} points at POLARIZATION_ID {dd.pol_id}, which does "
-                "not exist")
+                f"DATA_DESC_ID {dd.id} points at POLARIZATION_ID {dd.pol_id}, which does not exist"
+            )
 
     for spw in info.spws:
         if len(spw.chan_freq) != spw.num_chan:
             report.errors.append(
-                f"SPW {spw.id}: NUM_CHAN is {spw.num_chan} but CHAN_FREQ has {len(spw.chan_freq)} entries")
+                f"SPW {spw.id}: NUM_CHAN is {spw.num_chan} but CHAN_FREQ has {len(spw.chan_freq)} entries"
+            )
 
     if info.nrows:
         _check_references(msname, info, report)
@@ -213,11 +236,12 @@ def check(msname: str) -> CheckReport:
 def _check_references(msname: str, info, report: CheckReport) -> None:
     """Verify the main table's index columns point at rows that exist."""
     with open_table(msname) as tab:
-        checks = (("FIELD_ID", set(info.fields.ids), "FIELD"),
-                  ("DATA_DESC_ID", set(info.data_descriptions.ids),
-                   "DATA_DESCRIPTION"),
-                  ("ANTENNA1", set(info.antennas.ids), "ANTENNA"),
-                  ("ANTENNA2", set(info.antennas.ids), "ANTENNA"))
+        checks = (
+            ("FIELD_ID", set(info.fields.ids), "FIELD"),
+            ("DATA_DESC_ID", set(info.data_descriptions.ids), "DATA_DESCRIPTION"),
+            ("ANTENNA1", set(info.antennas.ids), "ANTENNA"),
+            ("ANTENNA2", set(info.antennas.ids), "ANTENNA"),
+        )
         for column, valid, subtable in checks:
             if column not in tab.colnames():
                 continue
@@ -229,11 +253,13 @@ def _check_references(msname: str, info, report: CheckReport) -> None:
             if dangling:
                 report.errors.append(
                     f"{column} references {len(dangling)} row(s) that do not exist in {subtable}: "
-                    f"{dangling[:10]}")
+                    f"{dangling[:10]}"
+                )
 
 
-def taql(command: str, msname: str | None = None,
-         columns: Sequence[str] | None = None) -> dict[str, Any]:
+def taql(
+    command: str, msname: str | None = None, columns: Sequence[str] | None = None
+) -> dict[str, Any]:
     """Run a TaQL command and return the result columns as numpy arrays.
 
     Args:
@@ -282,9 +308,9 @@ def _manager_bytes(path: str, seqnr) -> int:
     prefix = f"table.f{seqnr}"
     total = 0
     for candidate in glob.glob(os.path.join(path, prefix + "*")):
-        suffix = os.path.basename(candidate)[len(prefix):]
+        suffix = os.path.basename(candidate)[len(prefix) :]
         if suffix[:1].isdigit():
-            continue                           # e.g. table.f10 for seqnr 1
+            continue  # e.g. table.f10 for seqnr 1
         if os.path.isfile(candidate):
             total += os.path.getsize(candidate)
     return total

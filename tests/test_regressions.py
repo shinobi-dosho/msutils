@@ -3,6 +3,7 @@
 Each test here failed before the fix. They are kept together so the failure
 modes stay documented even if the surrounding code moves.
 """
+
 import numpy
 import pytest
 from casacore.tables import table
@@ -20,6 +21,7 @@ def _getcol(msname, col):
 
 # --------------------------------------------------------------------------
 # addnoise: per-channel noise across multiple row chunks
+
 
 def test_addnoise_per_channel_across_chunks(ms):
     """Was: ValueError, non-broadcastable operand on the second chunk.
@@ -56,6 +58,7 @@ def test_addnoise_scalar_still_works(ms):
 # --------------------------------------------------------------------------
 # addcol: unbound data_desc and the ignored data_desc_type
 
+
 def test_addcol_without_clone_or_shape_raises_clearly(ms):
     """Was: UnboundLocalError on `data_desc`."""
     with pytest.raises(ValueError, match="not enough information"):
@@ -68,22 +71,26 @@ def test_addcol_scalar_column(ms):
     The code branched on `valuetype == 'scalar'`, conflating the value type
     with the cell layout, so a scalar column could not be created at all.
     """
-    assert msutils.addcol(ms, "MY_FLAG", data_desc_type="scalar",
-                          valuetype="bool", clone=None, init_with=False) == "added"
+    assert (
+        msutils.addcol(
+            ms, "MY_FLAG", data_desc_type="scalar", valuetype="bool", clone=None, init_with=False
+        )
+        == "added"
+    )
     col = _getcol(ms, "MY_FLAG")
     assert col.shape == (216,)
     assert col.dtype == bool
 
 
 def test_addcol_scalar_float_column(ms):
-    msutils.addcol(ms, "MY_SCALE", data_desc_type="scalar", valuetype="float",
-                   clone=None, init_with=2.5)
+    msutils.addcol(
+        ms, "MY_SCALE", data_desc_type="scalar", valuetype="float", clone=None, init_with=2.5
+    )
     assert numpy.allclose(_getcol(ms, "MY_SCALE"), 2.5)
 
 
 def test_addcol_explicit_shape(ms):
-    msutils.addcol(ms, "MY_ARRAY", shape=[4, 4], valuetype="float",
-                   clone=None, init_with=1.0)
+    msutils.addcol(ms, "MY_ARRAY", shape=[4, 4], valuetype="float", clone=None, init_with=1.0)
     col = _getcol(ms, "MY_ARRAY")
     assert col.shape == (216, 4, 4)
     assert numpy.allclose(col, 1.0)

@@ -5,6 +5,7 @@ Behavioural tests run against synthetic Measurement Sets built by
 heavy simulation stack, and therefore no skipping. Anything that can
 ``import msutils`` can run the whole suite.
 """
+
 import shutil
 
 import pytest
@@ -46,14 +47,13 @@ def patterned_ms(tmp_path_factory):
     import numpy as np
     from casacore.tables import table
 
-    path = make_ms(tmp_path_factory.mktemp("patterned") / "patterned.ms",
-                   nspw=1, flag_every=None)
+    path = make_ms(tmp_path_factory.mktemp("patterned") / "patterned.ms", nspw=1, flag_every=None)
     with table(path, readonly=False, ack=False) as tab:
         flag = np.zeros_like(tab.getcol("FLAG"))
-        flag[:, :, 1] = True                       # correlation XY
-        flag[:, 3, :] = True                       # channel 3
+        flag[:, :, 1] = True  # correlation XY
+        flag[:, 3, :] = True  # channel 3
         a1, a2 = tab.getcol("ANTENNA1"), tab.getcol("ANTENNA2")
-        flag[(a1 == 0) | (a2 == 0)] = True         # antenna 0
+        flag[(a1 == 0) | (a2 == 0)] = True  # antenna 0
         tab.putcol("FLAG", flag)
     return path
 
@@ -61,5 +61,10 @@ def patterned_ms(tmp_path_factory):
 @pytest.fixture(scope="session")
 def single_spw_ms(tmp_path_factory):
     """A minimal one-field, one-SPW, unflagged MS for edge-case checks."""
-    return make_ms(tmp_path_factory.mktemp("single") / "single.ms",
-                   nspw=1, nfield=1, nscan_per_field=1, flag_every=None)
+    return make_ms(
+        tmp_path_factory.mktemp("single") / "single.ms",
+        nspw=1,
+        nfield=1,
+        nscan_per_field=1,
+        flag_every=None,
+    )

@@ -13,6 +13,7 @@ always reported identical values. The same kernel inflated the per-scan and
 per-field ``sum``/``counts`` by the number of groups. The dependency is gone;
 only the optional matplotlib plot remains behind the ``plots`` extra.
 """
+
 from __future__ import annotations
 
 import json
@@ -85,6 +86,7 @@ class FlagStats(_Record):
     def render(self) -> str:
         """A plain-text report of the flag percentages."""
         from ._flagrender import render_flagstats
+
         return render_flagstats(self)
 
     def to_json(self, indent: int | None = 2) -> str:
@@ -100,12 +102,14 @@ class FlagStats(_Record):
         return self.render()
 
 
-def flagstats(msname: str,
-              fields: Sequence | None = None,
-              spws: Sequence | None = None,
-              antennas: Sequence | None = None,
-              scans: Sequence | None = None,
-              outfile: str | None = None) -> FlagStats:
+def flagstats(
+    msname: str,
+    fields: Sequence | None = None,
+    spws: Sequence | None = None,
+    antennas: Sequence | None = None,
+    scans: Sequence | None = None,
+    outfile: str | None = None,
+) -> FlagStats:
     """Compute flag statistics for ``msname``.
 
     Args:
@@ -128,8 +132,7 @@ def flagstats(msname: str,
 
     # DATA_DESC_ID is what the main table keys off, so translate the SPW
     # selection through DATA_DESCRIPTION rather than assuming ddid == spw.
-    ddids = [d.id for d in info.data_descriptions
-             if spw_ids is None or d.spw_id in spw_ids]
+    ddids = [d.id for d in info.data_descriptions if spw_ids is None or d.spw_id in spw_ids]
     spw_of_ddid = {d.id: d.spw_id for d in info.data_descriptions}
     if not ddids:
         raise ValueError("no DATA_DESC_IDs match the requested spectral windows")
@@ -153,8 +156,9 @@ def flagstats(msname: str,
             # every cell follow.
             fields_seen = _axis_counts(tab, "FIELD_ID", where)
             scans_seen = _axis_counts(tab, "SCAN_NUMBER", where)
-            baselines = _axis_counts(tab, "ANTENNA1, ANTENNA2", where,
-                                     keys=("ANTENNA1", "ANTENNA2"))
+            baselines = _axis_counts(
+                tab, "ANTENNA1, ANTENNA2", where, keys=("ANTENNA1", "ANTENNA2")
+            )
 
             if fields_seen is None:
                 LOGGER.info("No rows for DATA_DESC_ID %d with this selection", ddid)
@@ -165,15 +169,17 @@ def flagstats(msname: str,
             corr_labels = _corr_labels(info, ddid)
 
             for i, key in enumerate(keys):
-                _accumulate(per_field, int(key[0]), info.fields, flagged[i],
-                            nrows[i] * nchan * ncorr)
+                _accumulate(
+                    per_field, int(key[0]), info.fields, flagged[i], nrows[i] * nchan * ncorr
+                )
 
             if scans_seen is not None:
                 skeys, sflagged, snrows = scans_seen
                 for i, key in enumerate(skeys):
                     number = int(key[0])
-                    _bump(per_scan, number, str(number), sflagged[i].sum(),
-                          snrows[i] * nchan * ncorr)
+                    _bump(
+                        per_scan, number, str(number), sflagged[i].sum(), snrows[i] * nchan * ncorr
+                    )
 
             if baselines is not None:
                 bkeys, bflagged, bnrows = baselines
@@ -181,28 +187,42 @@ def flagstats(msname: str,
                     p, q = int(key[0]), int(key[1])
                     total = int(bnrows[i]) * nchan * ncorr
                     count = int(bflagged[i].sum())
-                    _bump(per_baseline, (p, q),
-                          f"{_name(info.antennas, p)}-{_name(info.antennas, q)}",
-                          count, total)
+                    _bump(
+                        per_baseline,
+                        (p, q),
+                        f"{_name(info.antennas, p)}-{_name(info.antennas, q)}",
+                        count,
+                        total,
+                    )
                     # A baseline contributes to both of its antennas.
                     for antenna in (p, q):
-                        _accumulate(per_antenna, antenna, info.antennas,
-                                    count, total)
+                        _accumulate(per_antenna, antenna, info.antennas, count, total)
 
             # Channel and correlation breakdowns are free: sum the per-field
             # array over the group axis, then over the other data axis.
-            spw_flagged = flagged.sum(axis=0)               # (nchan, ncorr)
+            spw_flagged = flagged.sum(axis=0)  # (nchan, ncorr)
             spw_total = int(nrows.sum())
-            _bump(per_spw, spw_id, _name(info.spws, spw_id),
-                  int(spw_flagged.sum()), spw_total * nchan * ncorr)
+            _bump(
+                per_spw,
+                spw_id,
+                _name(info.spws, spw_id),
+                int(spw_flagged.sum()),
+                spw_total * nchan * ncorr,
+            )
             for c in range(ncorr):
-                _bump(per_corr, c, corr_labels[c] if c < len(corr_labels) else str(c),
-                      int(spw_flagged[:, c].sum()), spw_total * nchan)
+                _bump(
+                    per_corr,
+                    c,
+                    corr_labels[c] if c < len(corr_labels) else str(c),
+                    int(spw_flagged[:, c].sum()),
+                    spw_total * nchan,
+                )
             per_channel[spw_id] = [
-                FlagCount(id=ch, name=str(ch),
-                          flagged=int(spw_flagged[ch].sum()),
-                          total=spw_total * ncorr)
-                for ch in range(nchan)]
+                FlagCount(
+                    id=ch, name=str(ch), flagged=int(spw_flagged[ch].sum()), total=spw_total * ncorr
+                )
+                for ch in range(nchan)
+            ]
 
     stats.by_field = Registry(_sorted(per_field))
     stats.by_scan = Registry(_sorted(per_scan))
@@ -211,12 +231,16 @@ def flagstats(msname: str,
     stats.by_spw = Registry(_sorted(per_spw))
     stats.by_correlation = Registry(_sorted(per_corr))
     stats.by_channel = per_channel
-    stats.total = FlagCount(id="all", name="all",
-                            flagged=sum(c.flagged for c in stats.by_spw),
-                            total=sum(c.total for c in stats.by_spw))
+    stats.total = FlagCount(
+        id="all",
+        name="all",
+        flagged=sum(c.flagged for c in stats.by_spw),
+        total=sum(c.total for c in stats.by_spw),
+    )
 
-    LOGGER.info("%s: %.2f%% of %d visibilities flagged",
-                msname, stats.total.percent, stats.total.total)
+    LOGGER.info(
+        "%s: %.2f%% of %d visibilities flagged", msname, stats.total.percent, stats.total.total
+    )
     if outfile:
         stats.save(outfile)
     return stats
@@ -225,8 +249,8 @@ def flagstats(msname: str,
 # --------------------------------------------------------------------------
 # TaQL
 
-def _axis_counts(tab, group_by: str, where: str,
-                 keys: Sequence[str] = ()) -> tuple | None:
+
+def _axis_counts(tab, group_by: str, where: str, keys: Sequence[str] = ()) -> tuple | None:
     """``GROUPBY group_by`` -> (key tuples, (n, nchan, ncorr) counts, row counts).
 
     ``GNTRUES`` gives the per-element flag count for each group, which is what
@@ -234,8 +258,10 @@ def _axis_counts(tab, group_by: str, where: str,
     group total.
     """
     key_names = list(keys) or [group_by]
-    command = (f"SELECT {group_by}, GNTRUES(FLAG) AS NFLAG, GCOUNT() AS NROW "
-               f"FROM $1 {where} GROUPBY {group_by}")
+    command = (
+        f"SELECT {group_by}, GNTRUES(FLAG) AS NFLAG, GCOUNT() AS NROW "
+        f"FROM $1 {where} GROUPBY {group_by}"
+    )
     LOGGER.debug("flag stats: %s", command)
     with query(command, [tab]) as res:
         if res.nrows() == 0:
@@ -261,6 +287,7 @@ def _where(ddid: int, field_ids, antenna_ids, scan_ids) -> str:
 
 # --------------------------------------------------------------------------
 # helpers
+
 
 def _resolve(selection, registry, label: str) -> list[int] | None:
     """Map a mixed list of ids and names to ids, via the MSInfo registry."""
@@ -291,16 +318,14 @@ def _name(registry, ident: int) -> str:
 def _bump(store: dict, key, name: str, flagged, total) -> None:
     entry = store.get(key)
     if entry is None:
-        store[key] = FlagCount(id=key, name=name, flagged=int(flagged),
-                               total=int(total))
+        store[key] = FlagCount(id=key, name=name, flagged=int(flagged), total=int(total))
     else:
         entry.flagged += int(flagged)
         entry.total += int(total)
 
 
 def _accumulate(store: dict, ident: int, registry, flagged, total) -> None:
-    _bump(store, ident, _name(registry, ident),
-          int(np.sum(flagged)), int(total))
+    _bump(store, ident, _name(registry, ident), int(np.sum(flagged)), int(total))
 
 
 def _sorted(store: dict) -> list[FlagCount]:
@@ -312,15 +337,17 @@ def _corr_labels(info, ddid: int) -> list[str]:
     try:
         pol_id = info.data_descriptions[ddid].pol_id
         return info.polarizations[pol_id].corr_labels
-    except KeyError:                           # pragma: no cover - malformed MS
+    except KeyError:  # pragma: no cover - malformed MS
         return []
 
 
 # --------------------------------------------------------------------------
 # public entry points kept from 2.x
 
-def save_statistics(msname: str, antennas=None, fields=None,
-                    outfile: str | None = None, **kwargs) -> FlagStats:
+
+def save_statistics(
+    msname: str, antennas=None, fields=None, outfile: str | None = None, **kwargs
+) -> FlagStats:
     """Compute flag statistics and write them to JSON.
 
     Returns a :class:`FlagStats` rather than the old nested dict. The JSON
@@ -328,20 +355,29 @@ def save_statistics(msname: str, antennas=None, fields=None,
     that were all identical, and per-scan/per-field sums inflated by the
     number of groups.
     """
-    return flagstats(msname, fields=fields, antennas=antennas,
-                     outfile=outfile or "default-flag-statistics.json",
-                     **kwargs)
+    return flagstats(
+        msname,
+        fields=fields,
+        antennas=antennas,
+        outfile=outfile or "default-flag-statistics.json",
+        **kwargs,
+    )
 
 
-def plot_statistics(msname: str, antennas=None, fields=None,
-                    plotfile: str | None = None,
-                    outfile: str | None = None, **kwargs) -> FlagStats:
+def plot_statistics(
+    msname: str,
+    antennas=None,
+    fields=None,
+    plotfile: str | None = None,
+    outfile: str | None = None,
+    **kwargs,
+) -> FlagStats:
     """Compute flag statistics, write a PNG summary and optionally JSON.
 
     Needs the ``plots`` extra for matplotlib.
     """
-    stats = flagstats(msname, fields=fields, antennas=antennas,
-                      outfile=outfile, **kwargs)
+    stats = flagstats(msname, fields=fields, antennas=antennas, outfile=outfile, **kwargs)
     from ._flagplot import plot_flagstats
+
     plot_flagstats(stats, plotfile or "default-flagging-summary-plots.png")
     return stats
