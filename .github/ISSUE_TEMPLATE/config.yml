@@ -1,0 +1,10 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/SpheMakh/msutils/security/policy
+    about: >
+      Please do not open a public issue. Report privately by email or via
+      GitHub's private vulnerability reporting — see SECURITY.md.
+  - name: Documentation
+    url: https://msutils.readthedocs.io
+    about: Installation, quickstart, concepts and the API reference.

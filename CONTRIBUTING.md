@@ -5,6 +5,9 @@ everyday Measurement Set operations for radio-astronomy pipelines. The most
 valuable contributions are bug reports against real MSs, focused fixes, tests,
 documentation, and feedback on the design.
 
+Everyone taking part is expected to follow the
+[Code of Conduct](https://github.com/SpheMakh/msutils/blob/main/CODE_OF_CONDUCT.md).
+
 ## Scope and philosophy
 
 msutils does **everyday MS operations**: inspect, subset, average, manage
@@ -37,10 +40,12 @@ casacore tables.
 ## Ways to contribute
 
 - **Report bugs** via [issues](https://github.com/SpheMakh/msutils/issues).
-  A bug report that names the telescope and the MS's shape (fields, SPWs,
-  scans, whether `FEED`/`STATE`/`SOURCE` are populated) is worth several that
-  don't — most metadata bugs are really "this MS is shaped in a way the code
-  did not expect".
+  The bug-report form asks for `msutils info` output, which carries the
+  telescope and the MS's shape (fields, SPWs, scans, whether
+  `FEED`/`STATE`/`SOURCE` are populated). That is worth more than a
+  traceback — most metadata bugs are really "this MS is shaped in a way the
+  code did not expect". Security issues go to `SECURITY.md`, not to a public
+  issue.
 - **Fix a bug**, with a regression test that fails without the fix.
   `tests/test_regressions.py` collects the ones found in the 2.x audit and is
   the right home for more.

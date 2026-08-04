@@ -56,6 +56,7 @@ The same call reads MSv2 tables and MSv4 processing sets, returning the same
    :caption: Project
 
    contributing
+   conduct
    changelog
 
 Indices
