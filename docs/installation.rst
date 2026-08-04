@@ -55,7 +55,7 @@ From source
 
 .. code-block:: console
 
-    $ git clone https://github.com/SpheMakh/msutils.git
+    $ git clone https://github.com/shinobi-dosho/msutils.git
     $ cd msutils
     $ uv sync --all-extras --group dev
     $ uv run pytest

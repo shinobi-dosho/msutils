@@ -97,10 +97,10 @@ test = [
 
 [project.urls]
 Homepage = "https://msutils.readthedocs.io"
-Repository = "https://github.com/SpheMakh/msutils"
-Issues = "https://github.com/SpheMakh/msutils/issues"
+Repository = "https://github.com/shinobi-dosho/msutils"
+Issues = "https://github.com/shinobi-dosho/msutils/issues"
 Documentation = "https://msutils.readthedocs.io"
-Changelog = "https://github.com/SpheMakh/msutils/blob/main/CHANGELOG.md"
+Changelog = "https://github.com/shinobi-dosho/msutils/blob/main/CHANGELOG.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/msutils"]

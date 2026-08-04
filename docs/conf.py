@@ -87,7 +87,7 @@ html_title = f"msutils {release}"
 html_static_path = ["_static"]
 
 html_theme_options = {
-    "source_repository": "https://github.com/SpheMakh/msutils/",
+    "source_repository": "https://github.com/shinobi-dosho/msutils/",
     "source_branch": "main",
     "source_directory": "docs/",
 }

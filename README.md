@@ -3,7 +3,8 @@
 Everyday Measurement Set operations for radio-astronomy pipelines — inspect,
 subset, average, manage columns and flags. No calibration, no imaging.
 
-[![Python package](https://github.com/sphemakh/msutils/actions/workflows/installation.yml/badge.svg)](https://github.com/sphemakh/msutils/actions/workflows/installation.yml)
+[![CI](https://github.com/shinobi-dosho/msutils/actions/workflows/ci.yml/badge.svg)](https://github.com/shinobi-dosho/msutils/actions/workflows/ci.yml)
+[![Documentation](https://readthedocs.org/projects/msutils/badge/?version=latest)](https://msutils.readthedocs.io/en/latest/)
 [![PyPI](https://img.shields.io/pypi/v/msutils.svg)](https://pypi.org/project/msutils/)
 
 ```python

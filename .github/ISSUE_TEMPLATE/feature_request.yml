@@ -8,7 +8,7 @@ body:
         msutils does **everyday MS operations**: inspect, subset, average,
         manage columns and flags. It does not calibrate, image, or otherwise
         process visibilities — see
-        [CONTRIBUTING.md](https://github.com/SpheMakh/msutils/blob/main/CONTRIBUTING.md#scope-and-philosophy).
+        [CONTRIBUTING.md](https://github.com/shinobi-dosho/msutils/blob/main/CONTRIBUTING.md#scope-and-philosophy).
         A request that would make msutils a processing package is likely to be
         declined however useful it is, so it is worth saying up front why it
         belongs here rather than in CASA, QuartiCal or WSClean.

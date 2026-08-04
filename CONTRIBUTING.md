@@ -6,7 +6,7 @@ valuable contributions are bug reports against real MSs, focused fixes, tests,
 documentation, and feedback on the design.
 
 Everyone taking part is expected to follow the
-[Code of Conduct](https://github.com/SpheMakh/msutils/blob/main/CODE_OF_CONDUCT.md).
+[Code of Conduct](https://github.com/shinobi-dosho/msutils/blob/main/CODE_OF_CONDUCT.md).
 
 ## Scope and philosophy
 
@@ -32,14 +32,14 @@ extend the existing aggregate rather than adding a pass.
 diagnostics. Anything heavier is an extra, imported inside the function that
 needs it, and `tests/test_import.py` enforces that in a subprocess.
 
-See **[`AGENTS.md`](https://github.com/SpheMakh/msutils/blob/main/AGENTS.md)**
+See **[`AGENTS.md`](https://github.com/shinobi-dosho/msutils/blob/main/AGENTS.md)**
 for the full set of conventions — read it
 before changing the readers, the `MSInfo` model, or anything that touches
 casacore tables.
 
 ## Ways to contribute
 
-- **Report bugs** via [issues](https://github.com/SpheMakh/msutils/issues).
+- **Report bugs** via [issues](https://github.com/shinobi-dosho/msutils/issues).
   The bug-report form asks for `msutils info` output, which carries the
   telescope and the MS's shape (fields, SPWs, scans, whether
   `FEED`/`STATE`/`SOURCE` are populated). That is worth more than a
@@ -59,7 +59,7 @@ casacore tables.
 The project uses [uv](https://docs.astral.sh/uv/).
 
 ```bash
-git clone https://github.com/SpheMakh/msutils.git
+git clone https://github.com/shinobi-dosho/msutils.git
 cd msutils
 uv sync --all-extras --group dev
 uv run pytest
