@@ -6,6 +6,10 @@ casacore tables. [`CONTRIBUTING.md`](CONTRIBUTING.md) covers setup, testing and
 the contribution workflow; this file states the conventions the code holds to
 and why.
 
+Organisation-wide conventions live in
+[`shinobi-dosho/.github`](https://github.com/shinobi-dosho/.github/blob/main/AGENTS.md) — this file states what is
+specific to `msutils` and wins where the two disagree.
+
 ## What this is
 
 `msutils` is a Python library and CLI of **everyday Measurement Set operations** for radio-astronomy pipelines — inspect, subset, average, manage columns and flags. Explicitly *not* calibration or imaging. Public functions are exposed on the package root (`import msutils; msutils.msinfo(ms)`) and mirrored by a click CLI (`msutils` console script → `msutils.cli:cli`).
@@ -85,3 +89,47 @@ Base install is `numpy` + `python-casacore` + `click`, and it covers `msinfo`, a
 - `tests/test_regressions.py` pins the six audited bugs; each test failed before its fix.
 - Tests for optional stacks `importorskip`. CI runs the suite twice: bare (proving the base install is self-sufficient) and with `[all]`.
 - Do not assert on the contents of a column created by `addcol` without `init_with` — it is genuinely uninitialised, and comparisons pass or fail by luck.
+
+## Attribution: commit trailers yes, PR trailers no
+
+A commit made with an assistant's help says so in a trailer on the
+**commit message**. Use whatever trailer the agent emits by default --
+Claude Code, for instance, ends a commit with
+
+```
+Co-Authored-By: Claude <noreply@anthropic.com>
+```
+
+An agent with no default of its own uses the same form, naming itself and
+the model behind it, with an address:
+
+```
+Co-authored-by: <AGENT> <MODEL> <EMAIL>
+```
+
+— e.g. `Co-authored-by: Codex GPT-5 <noreply@openai.com>`. One line, last
+in the message, after any `Co-authored-by:` for real people. The address
+is not decoration: GitHub only renders a trailer as co-authorship when it
+carries an `<email>`, so without one the credit stays plain text in the
+message body. Credit is the point — these tools do real work here, and
+the history should say so.
+
+**Pull request descriptions carry no trailer at all** — no
+`Co-authored-by:`, no "Generated with", no tool badge. A PR body is
+review material: it exists to tell a reviewer what changed and why, and
+what to check. Provenance already lives on every commit the PR contains,
+where it is attached to the specific change rather than repeated once
+per PR, so a trailer in the description is duplication in the one place
+that has no room for it. Agents default to adding one; delete it.
+
+Neither form is a substitute for the message itself. A commit that
+explains a decision badly does not improve by naming the model that
+helped make it — see the existing history for the standard: what
+changed, what it deviates from and why, and what a reviewer should not
+assume held still.
+
+## Reviewing changes: check the tree, not just the diff
+
+A claim that something "doesn't exist" or "is unused" should be verified against
+the actual tree before acting on it — a symbol absent from the diff is usually
+present in the repo.
