@@ -1,16 +1,19 @@
 """Write a selected -- and optionally averaged -- copy of an MS.
 
-:func:`subset` is a TaQL selection deep-copied into a new MS. :func:`average`
-adds time and channel averaging on top, delegating the actual binning to
+:func:`subset` is a TaQL selection deep-copied into a new MS. Passing
+``time_bin``/``chan_bin`` averages that selection on the way out, by
+delegating to :func:`average`, which in turn delegates the actual binning to
 `codex-africanus <https://github.com/ratt-ru/codex-africanus>`_ rather than
 reimplementing it; averaging correctly (weights, flags, exposure, uvw,
 centroids) is subtle and africanus is the reference implementation.
 
-**Indices are preserved, not renumbered.** CASA's ``split`` compacts field and
-SPW ids so the output starts at 0; these functions keep the originals, so ids
-in a subset still match the parent MS. That is usually what you want when
-subsetting for inspection, and it is the difference to watch for when porting
-a ``split`` call.
+**Indices are preserved by default, not renumbered.** CASA's ``split``
+compacts field and SPW ids so the output starts at 0; these functions keep the
+originals, so ids in a subset still match the parent MS. That is usually what
+you want when subsetting for inspection, and it is the difference to watch for
+when porting a ``split`` call. Pass ``reindex=True`` for the ``split``
+behaviour: unused FIELD, SPECTRAL_WINDOW and DATA_DESCRIPTION rows are dropped
+and what remains is renumbered from 0.
 """
 
 from __future__ import annotations
@@ -39,6 +42,10 @@ def subset(
     scans: Sequence | None = None,
     antennas: Sequence | None = None,
     taql: str | None = None,
+    time_bin: float | None = None,
+    chan_bin: int | None = None,
+    datacolumn: str = "DATA",
+    reindex: bool = False,
     overwrite: bool = False,
 ) -> str:
     """Write the selected rows of ``msname`` to a new MS at ``outms``.
@@ -52,11 +59,41 @@ def subset(
         antennas: Antenna ids or names; a baseline is kept if *either*
             antenna is selected.
         taql: Extra TaQL predicate, ANDed with the rest.
+        time_bin: Average the selection into bins this many seconds wide.
+            ``None`` (the default) copies the rows unaveraged.
+        chan_bin: Average this many channels together. ``None`` leaves the
+            channel axis alone.
+        datacolumn: Visibility column to average. Used only when averaging;
+            an unaveraged subset copies every column.
+        reindex: Renumber field and SPW ids from 0 and drop the subtable rows
+            the output no longer uses, as CASA ``split`` does. Off by default,
+            so ids keep matching the parent MS. If reindexing fails, no output
+            is left behind.
         overwrite: Replace ``outms`` if it exists.
 
     Returns:
         The path written.
+
+    Note:
+        Averaging needs the ``average`` extra
+        (``pip install 'msutils[average]'``); see :func:`average`.
     """
+    if time_bin is not None or chan_bin is not None:
+        return average(
+            msname,
+            outms,
+            time_bin=1.0 if time_bin is None else time_bin,
+            chan_bin=1 if chan_bin is None else chan_bin,
+            fields=fields,
+            spws=spws,
+            scans=scans,
+            antennas=antennas,
+            taql=taql,
+            datacolumn=datacolumn,
+            reindex=reindex,
+            overwrite=overwrite,
+        )
+
     info = msinfo(msname, level="meta")
     where = _selection(info, fields=fields, spws=spws, scans=scans, antennas=antennas, taql=taql)
     _prepare_output(outms, overwrite)
@@ -71,6 +108,9 @@ def subset(
             with closing_table(selection.copy(outms, deep=True)):
                 pass
 
+    if reindex:
+        _reindex_output(outms)
+
     LOGGER.info("Wrote %d rows to %s", nrows, outms)
     return outms
 
@@ -84,7 +124,9 @@ def average(
     spws: Sequence | None = None,
     scans: Sequence | None = None,
     antennas: Sequence | None = None,
+    taql: str | None = None,
     datacolumn: str = "DATA",
+    reindex: bool = False,
     overwrite: bool = False,
     rowchunk: int = 100000,
 ) -> str:
@@ -102,8 +144,9 @@ def average(
         time_bin: Averaging interval in seconds. 1.0 (the default) leaves the
             time axis alone for typical integration times.
         chan_bin: Channels per output channel.
-        fields, spws, scans, antennas: Selection, as for :func:`subset`.
+        fields, spws, scans, antennas, taql: Selection, as for :func:`subset`.
         datacolumn: Visibility column to average.
+        reindex: Renumber field and SPW ids from 0, as for :func:`subset`.
         overwrite: Replace ``outms`` if it exists.
         rowchunk: Rows read per iteration within a group.
 
@@ -123,7 +166,7 @@ def average(
         raise ValueError(f"time_bin must be > 0, got {time_bin}")
 
     info = msinfo(msname, level="meta")
-    where = _selection(info, fields=fields, spws=spws, scans=scans, antennas=antennas)
+    where = _selection(info, fields=fields, spws=spws, scans=scans, antennas=antennas, taql=taql)
     _prepare_output(outms, overwrite)
 
     with open_table(msname) as tab:
@@ -178,6 +221,9 @@ def average(
             )
 
         _write_output(msname, outms, info, blocks, averaged_spw, optional, datacolumn)
+
+    if reindex:
+        _reindex_output(outms, rowchunk=rowchunk)
 
     total = sum(len(b["time"]) for b in blocks)
     LOGGER.info(
@@ -415,6 +461,144 @@ def _copy_subtable(msname: str, outms: str, name: str) -> None:
             pass
     with table(outms, readonly=False, ack=False) as out:
         out.putkeyword(name, "Table: " + os.path.abspath(target))
+
+
+# --------------------------------------------------------------------------
+# reindexing
+
+#: Subtables whose ``SPECTRAL_WINDOW_ID`` has to follow a renumbered
+#: SPECTRAL_WINDOW. ``-1`` there means "every window" and is left as it is.
+SPW_REFERENCES = ("FEED", "SOURCE", "SYSCAL", "FREQ_OFFSET", "CAL_DEVICE", "SYSPOWER")
+
+
+def _reindex_output(outms: str, rowchunk: int = 100000) -> None:
+    """Reindex ``outms`` in place, removing it if reindexing fails.
+
+    The output is fully written before reindexing starts, so a failure would
+    otherwise leave a valid but unreindexed MS behind -- and a retry would
+    trip over it with ``FileExistsError``. Failure leaves nothing instead.
+    """
+    try:
+        _reindex(outms, rowchunk=rowchunk)
+    except Exception:
+        shutil.rmtree(outms, ignore_errors=True)
+        raise
+
+
+def _reindex(outms: str, rowchunk: int = 100000) -> None:
+    """Renumber ``outms``'s field and SPW ids from 0, CASA ``split`` style.
+
+    The FIELD, SPECTRAL_WINDOW and DATA_DESCRIPTION rows the output does not
+    use are dropped, the survivors keep their relative order -- so the lowest
+    surviving id becomes 0 -- and the main table's index columns are rewritten
+    to match. FEED and friends follow the renumbered SPWs.
+
+    Subtables a row selection cannot invalidate are left whole: ANTENNA,
+    POLARIZATION, STATE and OBSERVATION keep every row, so ``ANTENNA1``,
+    ``STATE_ID`` and the rest still resolve. Antennas in particular are *not*
+    pruned -- ``antennas=`` keeps a baseline if either end is selected, and
+    dropping ANTENNA rows would invalidate FEED, POINTING and SYSCAL for no
+    real gain. ``SOURCE_ID`` is likewise left alone: SOURCE is keyed by that
+    *value* rather than by row number, so the surviving FIELD rows go on
+    resolving without it being touched.
+    """
+    with open_table(outms) as tab:
+        used_fields = _distinct(tab, "FIELD_ID")
+        used_ddids = _distinct(tab, "DATA_DESC_ID")
+
+    with open_table(os.path.join(outms, "DATA_DESCRIPTION")) as tab:
+        spw_of_ddid = [int(v) for v in tab.getcol("SPECTRAL_WINDOW_ID")]
+    dangling = [d for d in used_ddids if d >= len(spw_of_ddid)]
+    if dangling:
+        raise ValueError(f"cannot reindex: DATA_DESC_ID {dangling} has no DATA_DESCRIPTION row")
+    used_spws = sorted({spw_of_ddid[d] for d in used_ddids})
+
+    field_map = _prune(outms, "FIELD", used_fields, "FIELD_ID")
+    spw_map = _prune(outms, "SPECTRAL_WINDOW", used_spws, "SPECTRAL_WINDOW_ID")
+    ddid_map = _prune(outms, "DATA_DESCRIPTION", used_ddids, "DATA_DESC_ID")
+
+    # DATA_DESCRIPTION now holds the kept rows in their original order, so its
+    # SPECTRAL_WINDOW_ID column is the kept ddids' windows, renumbered.
+    with open_table(os.path.join(outms, "DATA_DESCRIPTION"), readonly=False) as tab:
+        tab.putcol(
+            "SPECTRAL_WINDOW_ID",
+            np.array([spw_map[spw_of_ddid[d]] for d in used_ddids], np.int32),
+        )
+
+    with open_table(outms, readonly=False) as tab:
+        _remap_column(tab, "FIELD_ID", field_map, rowchunk)
+        _remap_column(tab, "DATA_DESC_ID", ddid_map, rowchunk)
+
+    for name in SPW_REFERENCES:
+        _follow_spws(outms, name, spw_map)
+
+    LOGGER.info(
+        "Reindexed %s: %d field(s), %d SPW(s), %d data description(s)",
+        outms,
+        len(field_map),
+        len(spw_map),
+        len(ddid_map),
+    )
+
+
+def _distinct(tab, column: str) -> list[int]:
+    """The distinct values of an index column, sorted, aggregated in TaQL."""
+    with query(f"SELECT DISTINCT {column} FROM $1", [tab]) as res:
+        if res.nrows() == 0:
+            return []
+        return sorted({int(v) for v in res.getcol(column)})
+
+
+def _prune(outms: str, name: str, keep: Sequence[int], column: str) -> dict[int, int]:
+    """Drop every row of subtable ``name`` bar ``keep``; return old id -> new id.
+
+    Removal preserves row order, so a kept row's new id is its rank among the
+    kept ones -- hence the sort.
+    """
+    keep = sorted(keep)
+    with open_table(os.path.join(outms, name), readonly=False) as tab:
+        nrows = tab.nrows()
+        dangling = [row for row in keep if not 0 <= row < nrows]
+        if dangling:
+            raise ValueError(
+                f"cannot reindex: {column} {dangling} has no row in {name}; "
+                "msutils.check() reports such dangling references"
+            )
+        drop = sorted(set(range(nrows)) - set(keep))
+        if drop:
+            tab.removerows(drop)
+    return {old: new for new, old in enumerate(keep)}
+
+
+def _remap_column(tab, column: str, mapping: dict[int, int], rowchunk: int) -> None:
+    """Rewrite an index column through ``mapping``, a chunk of rows at a time."""
+    if not mapping or all(old == new for old, new in mapping.items()):
+        return
+    lookup = np.zeros(max(mapping) + 1, np.int32)
+    for old, new in mapping.items():
+        lookup[old] = new
+    nrows = tab.nrows()
+    for row0 in range(0, nrows, rowchunk):
+        count = min(rowchunk, nrows - row0)
+        tab.putcol(column, lookup[tab.getcol(column, row0, count)], row0, count)
+
+
+def _follow_spws(outms: str, name: str, spw_map: dict[int, int]) -> None:
+    """Drop a subtable's rows for removed SPWs and renumber the rest."""
+    path = os.path.join(outms, name)
+    if not os.path.isdir(path):
+        return
+    with open_table(path, readonly=False) as tab:
+        if tab.nrows() == 0 or "SPECTRAL_WINDOW_ID" not in tab.colnames():
+            return
+        spws = [int(v) for v in tab.getcol("SPECTRAL_WINDOW_ID")]
+        drop = {row for row, spw in enumerate(spws) if spw >= 0 and spw not in spw_map}
+        if drop:
+            tab.removerows(sorted(drop))
+            spws = [spw for row, spw in enumerate(spws) if row not in drop]
+        remapped = [spw_map[s] if s >= 0 else s for s in spws]
+        if remapped != spws:
+            tab.putcol("SPECTRAL_WINDOW_ID", np.array(remapped, np.int32))
 
 
 # --------------------------------------------------------------------------
