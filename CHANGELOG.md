@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `subset()` averages: `time_bin` / `chan_bin` (`--time-bin` / `--chan-bin`),
+  with `datacolumn` to pick the column to bin. Selecting and averaging is now
+  one pass instead of a subset followed by an `average`. The work is handed to
+  `average()`, so it needs the `average` extra; a subset with no bins given is
+  unchanged and needs nothing.
+- `reindex=True` (`--reindex`) on `subset()` and `average()` — CASA `split`
+  style renumbering. The FIELD, SPECTRAL_WINDOW and DATA_DESCRIPTION rows the
+  output no longer uses are dropped and the survivors renumbered from 0,
+  keeping their original order; `FIELD_ID`/`DATA_DESC_ID` are rewritten to
+  match and FEED, SOURCE, SYSCAL, FREQ_OFFSET, CAL_DEVICE and SYSPOWER follow
+  the renumbered windows. ANTENNA, POLARIZATION, STATE and OBSERVATION keep
+  every row, so the ids referring to them stay valid. Off by default:
+  preserved ids remain msutils' behaviour.
+- `average()` takes `taql=` (`--taql`), the extra predicate `subset()` already
+  accepted.
+
 ## 3.0.0
 
 A rewrite of the metadata layer, a set of new everyday tools, and fixes for

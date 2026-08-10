@@ -120,6 +120,7 @@ msutils.addnoise("obs.ms", column="MODEL_DATA", sefd=551)
 
 # datasets
 msutils.subset("obs.ms", "target.ms", fields=["DEEP_2"], spws=[0])
+msutils.subset("obs.ms", "target.ms", fields=["DEEP_2"], chan_bin=4)  # select + average
 msutils.average("obs.ms", "avg.ms", time_bin=8.0, chan_bin=4)  # [average]
 
 # flags
@@ -135,16 +136,24 @@ msutils.check("obs.ms")  # MSv2 conformance
 msutils.taql("SELECT DISTINCT FIELD_ID FROM $1", "obs.ms")
 ```
 
-`subset` keeps the original field and SPW ids rather than renumbering them
-the way CASA `split` does, so ids in a subset still match the parent MS.
+`subset` takes `time_bin`/`chan_bin` too, so selecting and averaging is one
+pass rather than two (it hands off to `average`, so that needs the `average`
+extra).
+
+By default `subset` keeps the original field and SPW ids rather than
+renumbering them the way CASA `split` does, so ids in a subset still match the
+parent MS. Pass `reindex=True` (`--reindex`) for `split`'s behaviour: the
+FIELD, SPECTRAL_WINDOW and DATA_DESCRIPTION rows the output no longer uses are
+dropped and the survivors are renumbered from 0, in their original order.
+ANTENNA, POLARIZATION, STATE and OBSERVATION keep every row.
 
 ## Command line
 
 ```bash
 msutils info      obs.ms [-v] [--level meta|full|data] [--json out.json]
 msutils flagstats obs.ms [--plot flags.png] [--json flags.json] [--field DEEP_2]
-msutils subset    obs.ms target.ms --field DEEP_2 --spw 0
-msutils average   obs.ms avg.ms --time-bin 8 --chan-bin 4
+msutils subset    obs.ms target.ms --field DEEP_2 --spw 0 [--chan-bin 4] [--reindex]
+msutils average   obs.ms avg.ms --time-bin 8 --chan-bin 4 [--reindex]
 msutils delcol    obs.ms CORRECTED_DATA MODEL_DATA
 msutils renamecol obs.ms MODEL_DATA OLD_MODEL
 msutils addcol    obs.ms MODEL_DATA --clone DATA

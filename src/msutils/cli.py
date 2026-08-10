@@ -252,34 +252,87 @@ def _selection_options(command):
     return command
 
 
+def _taql_option(command):
+    return click.option(
+        "--taql",
+        "taql_where",
+        default=None,
+        help="Extra TaQL predicate, ANDed with the other selections.",
+    )(command)
+
+
+def _reindex_option(command):
+    return click.option(
+        "--reindex",
+        is_flag=True,
+        help="Renumber field and SPW ids from 0 and drop the subtable rows "
+        "the output no longer uses, as CASA split does.",
+    )(command)
+
+
 @cli.command()
 @click.argument("ms")
 @click.argument("outms")
 @_selection_options
+@_taql_option
 @click.option(
-    "--taql",
-    "taql_where",
+    "--time-bin",
+    type=float,
     default=None,
-    help="Extra TaQL predicate, ANDed with the other selections.",
+    help="Also average into bins this many seconds wide (needs the 'average' extra).",
 )
+@click.option(
+    "--chan-bin",
+    type=int,
+    default=None,
+    help="Also average this many channels together (needs the 'average' extra).",
+)
+@click.option(
+    "--datacolumn",
+    default="DATA",
+    show_default=True,
+    help="Visibility column to average. Ignored unless averaging.",
+)
+@_reindex_option
 @click.option("--overwrite", is_flag=True, help="Replace OUTMS if it exists.")
-def subset(ms, outms, fields, spws, scans, antennas, taql_where, overwrite):
+def subset(
+    ms,
+    outms,
+    fields,
+    spws,
+    scans,
+    antennas,
+    taql_where,
+    time_bin,
+    chan_bin,
+    datacolumn,
+    reindex,
+    overwrite,
+):
     """Write the selected rows of MS to a new MS at OUTMS.
 
-    Field and SPW ids are preserved, not renumbered as CASA split does.
+    Field and SPW ids are preserved unless --reindex is given, rather than
+    renumbered the way CASA split does.
     """
     from .subset import subset as _subset
 
-    _subset(
-        ms,
-        outms,
-        fields=list(fields) or None,
-        spws=list(spws) or None,
-        scans=list(scans) or None,
-        antennas=list(antennas) or None,
-        taql=taql_where,
-        overwrite=overwrite,
-    )
+    try:
+        _subset(
+            ms,
+            outms,
+            fields=list(fields) or None,
+            spws=list(spws) or None,
+            scans=list(scans) or None,
+            antennas=list(antennas) or None,
+            taql=taql_where,
+            time_bin=time_bin,
+            chan_bin=chan_bin,
+            datacolumn=datacolumn,
+            reindex=reindex,
+            overwrite=overwrite,
+        )
+    except ImportError as exc:  # averaging was asked for without the extra
+        raise click.ClickException(str(exc)) from exc
     click.echo(outms)
 
 
@@ -293,11 +346,26 @@ def subset(ms, outms, fields, spws, scans, antennas, taql_where, overwrite):
     "--chan-bin", type=int, default=1, show_default=True, help="Channels per output channel."
 )
 @_selection_options
+@_taql_option
 @click.option(
     "--datacolumn", default="DATA", show_default=True, help="Visibility column to average."
 )
+@_reindex_option
 @click.option("--overwrite", is_flag=True, help="Replace OUTMS if it exists.")
-def average(ms, outms, time_bin, chan_bin, fields, spws, scans, antennas, datacolumn, overwrite):
+def average(
+    ms,
+    outms,
+    time_bin,
+    chan_bin,
+    fields,
+    spws,
+    scans,
+    antennas,
+    taql_where,
+    datacolumn,
+    reindex,
+    overwrite,
+):
     """Time- and channel-average MS into OUTMS (needs the 'average' extra)."""
     from .subset import average as _average
 
@@ -311,7 +379,9 @@ def average(ms, outms, time_bin, chan_bin, fields, spws, scans, antennas, dataco
             spws=list(spws) or None,
             scans=list(scans) or None,
             antennas=list(antennas) or None,
+            taql=taql_where,
             datacolumn=datacolumn,
+            reindex=reindex,
             overwrite=overwrite,
         )
     except ImportError as exc:

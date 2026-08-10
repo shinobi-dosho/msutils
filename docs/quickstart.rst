@@ -45,9 +45,24 @@ Take a piece of it
     msutils.subset("obs.ms", "target.ms", fields=["DEEP_2"], spws=[0])
     msutils.average("obs.ms", "avg.ms", time_bin=8.0, chan_bin=4)
 
+    # select and average in one pass (hands off to average, so needs [average])
+    msutils.subset("obs.ms", "target.ms", fields=["DEEP_2"], time_bin=8.0, chan_bin=4)
+
 :func:`~msutils.subset` keeps the original field and SPW ids rather than
 renumbering them the way CASA ``split`` does, so ids in a subset still match
-the parent MS.
+the parent MS. Pass ``reindex=True`` for ``split``'s behaviour:
+
+.. code-block:: python
+
+    msutils.subset("obs.ms", "target.ms", fields=["DEEP_2"], reindex=True)
+    msutils.msinfo("target.ms").fields.ids            # [0], not [2]
+
+Reindexing drops the FIELD, SPECTRAL_WINDOW and DATA_DESCRIPTION rows the
+output no longer uses and renumbers the survivors from 0, keeping their
+original order; FEED and SOURCE follow the renumbered windows. ANTENNA,
+POLARIZATION, STATE and OBSERVATION keep every row, so the ids referring to
+them stay valid -- antennas in particular are never pruned, since
+``antennas=`` keeps a baseline if either end is selected.
 
 Columns
 -------

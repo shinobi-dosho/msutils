@@ -145,6 +145,114 @@ def test_subset_unknown_field(ms, tmp_path):
 
 
 # --------------------------------------------------------------------------
+# subset --reindex (CASA split style renumbering)
+
+
+def test_reindex_compacts_field_ids(ms, tmp_path):
+    out = str(tmp_path / "reindexed.ms")
+    subset(ms, out, fields=["DEEP_2"], reindex=True)
+
+    info = msutils.msinfo(out)
+    # field 2 was the only one kept, so FIELD has one row and it is id 0
+    assert info.nfields == 1
+    assert info.fields[0].name == "DEEP_2"
+    assert {s.field_id for s in info.scans} == {0}
+    assert check(out).ok
+
+
+def test_reindex_keeps_relative_order(ms, tmp_path):
+    """Survivors renumber by rank, so ids stay in their original order."""
+    out = str(tmp_path / "two_fields.ms")
+    subset(ms, out, fields=[1, 2], reindex=True)
+
+    info = msutils.msinfo(out)
+    assert [f.name for f in info.fields] == ["J0217+0144", "DEEP_2"]
+    assert info.fields.ids == [0, 1]
+    assert sorted(taql("SELECT DISTINCT FIELD_ID FROM $1", out)["FIELD_ID"]) == [0, 1]
+
+
+def test_reindex_compacts_spws_and_data_descriptions(ms, tmp_path):
+    out = str(tmp_path / "one_spw.ms")
+    subset(ms, out, spws=[1], reindex=True)
+
+    info = msutils.msinfo(out)
+    assert info.spws.ids == [0]
+    assert info.spws[0].name == "SPW1"  # the *second* window, renumbered to 0
+    assert [(d.id, d.spw_id) for d in info.data_descriptions] == [(0, 0)]
+    assert sorted(taql("SELECT DISTINCT DATA_DESC_ID FROM $1", out)["DATA_DESC_ID"]) == [0]
+    assert check(out).ok
+
+
+def test_reindex_follows_spws_into_feed(ms, tmp_path):
+    """FEED::SPECTRAL_WINDOW_ID must not dangle after SPWs are renumbered."""
+    out = str(tmp_path / "feed.ms")
+    subset(ms, out, spws=[1], reindex=True)
+
+    feed = taql("SELECT FROM $1", os.path.join(out, "FEED"))
+    assert set(feed["SPECTRAL_WINDOW_ID"].tolist()) == {0}
+    assert len(feed["ANTENNA_ID"]) == 4  # one row per antenna, for the one SPW
+
+
+def test_reindex_keeps_rows_valid_for_every_spw(ms, tmp_path):
+    """``SPECTRAL_WINDOW_ID`` -1 means "all windows"; it is not an id to remap."""
+    from casacore.tables import table
+
+    with table(ms + "::FEED", readonly=False, ack=False) as tab:
+        spws = tab.getcol("SPECTRAL_WINDOW_ID")
+        spws[0] = -1  # one wildcard row among the per-SPW ones
+        tab.putcol("SPECTRAL_WINDOW_ID", spws)
+
+    out = str(tmp_path / "wildcard.ms")
+    subset(ms, out, spws=[1], reindex=True)
+
+    feed = taql("SELECT FROM $1", os.path.join(out, "FEED"))
+    # the wildcard row survives as -1; the other SPW-0 rows are dropped
+    assert sorted(set(feed["SPECTRAL_WINDOW_ID"].tolist())) == [-1, 0]
+    assert len(feed["ANTENNA_ID"]) == 5  # 4 antennas for the kept SPW, plus it
+
+
+def test_reindex_leaves_antennas_alone(ms, tmp_path):
+    """Antennas are deliberately not pruned; FEED and POINTING depend on them."""
+    out = str(tmp_path / "ants.ms")
+    subset(ms, out, antennas=["m000"], reindex=True)
+    assert msutils.msinfo(out).nantennas == 4
+    assert check(out).ok
+
+
+def test_reindex_is_a_no_op_when_nothing_was_dropped(ms, tmp_path):
+    out = str(tmp_path / "whole.ms")
+    subset(ms, out, reindex=True)
+
+    info = msutils.msinfo(out)
+    assert info.fields.ids == [0, 1, 2]
+    assert info.spws.ids == [0, 1]
+    assert info.nrows == msutils.msinfo(ms).nrows
+
+
+def test_reindex_leaves_the_source_ms_untouched(ms, tmp_path):
+    """The subtables are deep copies -- pruning them must not reach back."""
+    subset(ms, str(tmp_path / "copy.ms"), fields=["DEEP_2"], spws=[0], reindex=True)
+
+    info = msutils.msinfo(ms)
+    assert info.nfields == 3
+    assert info.spws.ids == [0, 1]
+
+
+def test_reindex_failure_leaves_no_output(ms, tmp_path):
+    """A failed reindex must not leave a written-but-unreindexed MS behind."""
+    from casacore.tables import table
+
+    # Break the source: ddid 1 dangles once its DATA_DESCRIPTION row is gone
+    with table(ms + "::DATA_DESCRIPTION", readonly=False, ack=False) as tab:
+        tab.removerows([1])
+
+    out = str(tmp_path / "failed.ms")
+    with pytest.raises(ValueError, match="cannot reindex"):
+        subset(ms, out, reindex=True)
+    assert not os.path.exists(out)
+
+
+# --------------------------------------------------------------------------
 # average (needs codex-africanus)
 
 
@@ -192,6 +300,36 @@ def test_average_with_selection(ms, tmp_path, africanus):
     assert {s.field_id for s in msutils.msinfo(out).scans} == {2}
 
 
+def test_subset_averages_when_given_bins(ms, tmp_path, africanus):
+    """--time-bin/--chan-bin on a subset is the same code path as `average`."""
+    out = str(tmp_path / "subset_avg.ms")
+    subset(ms, out, fields=["DEEP_2"], time_bin=24.0, chan_bin=2)
+
+    before, after = msutils.msinfo(ms), msutils.msinfo(out)
+    assert {s.field_id for s in after.scans} == {2}
+    assert after.spws[0].num_chan == 2
+    assert after.nrows == before.nrows / 3 / 3  # one field of 3, 3 timestamps binned
+    assert check(out).ok
+
+
+def test_subset_averages_only_one_axis(ms, tmp_path, africanus):
+    """Giving just one bin leaves the other axis alone."""
+    out = str(tmp_path / "chan_only.ms")
+    subset(ms, out, chan_bin=4)
+    after = msutils.msinfo(out)
+    assert after.nrows == msutils.msinfo(ms).nrows
+    assert after.spws[0].num_chan == 1
+
+
+def test_subset_averaging_honours_taql_and_reindex(ms, tmp_path, africanus):
+    out = str(tmp_path / "avg_sel.ms")
+    subset(ms, out, spws=[1], chan_bin=2, taql="ANTENNA1==0", reindex=True)
+
+    info = msutils.msinfo(out)
+    assert info.spws.ids == [0] and info.spws[0].num_chan == 2
+    assert set(taql("SELECT DISTINCT ANTENNA1 FROM $1", out)["ANTENNA1"]) == {0}
+
+
 def test_average_validates_arguments(ms, tmp_path, africanus):
     with pytest.raises(ValueError, match="chan_bin must be"):
         msutils.average(ms, str(tmp_path / "a.ms"), chan_bin=0)
@@ -199,6 +337,23 @@ def test_average_validates_arguments(ms, tmp_path, africanus):
         msutils.average(ms, str(tmp_path / "b.ms"), time_bin=0)
     with pytest.raises(ValueError, match="has no column"):
         msutils.average(ms, str(tmp_path / "c.ms"), datacolumn="NOPE")
+
+
+def test_average_with_extra_taql(ms, tmp_path, africanus):
+    out = str(tmp_path / "avg_taql.ms")
+    msutils.average(ms, out, chan_bin=2, taql="ANTENNA1==0 AND ANTENNA2==1")
+    pairs = taql("SELECT DISTINCT ANTENNA1, ANTENNA2 FROM $1", out)
+    assert (set(pairs["ANTENNA1"]), set(pairs["ANTENNA2"])) == ({0}, {1})
+
+
+def test_average_reindexes_when_asked(ms, tmp_path, africanus):
+    out = str(tmp_path / "avg_reindexed.ms")
+    msutils.average(ms, out, chan_bin=2, spws=[1], reindex=True)
+
+    info = msutils.msinfo(out)
+    assert info.spws.ids == [0]
+    assert info.spws[0].num_chan == 2  # averaged grid, renumbered window
+    assert check(out).ok
 
 
 def test_average_reconciles_inconsistent_flags(ms, tmp_path, africanus):

@@ -169,6 +169,27 @@ def test_cli_subset(ms, tmp_path):
     assert _run("check", out).exit_code == 0
 
 
+def test_cli_subset_reindex(ms, tmp_path):
+    import msutils
+
+    out = str(tmp_path / "reindexed.ms")
+    result = _run("subset", ms, out, "--field", "DEEP_2", "--spw", "1", "--reindex")
+    assert result.exit_code == 0, result.output
+    info = msutils.msinfo(out)
+    assert info.fields.ids == [0] and info.spws.ids == [0]
+    assert _run("check", out).exit_code == 0
+
+
+def test_cli_subset_averages(ms, tmp_path):
+    pytest.importorskip("africanus.averaging", reason="codex-africanus not installed")
+    import msutils
+
+    out = str(tmp_path / "sub_avg.ms")
+    result = _run("subset", ms, out, "--field", "DEEP_2", "--chan-bin", "2")
+    assert result.exit_code == 0, result.output
+    assert msutils.msinfo(out).spws[0].num_chan == 2
+
+
 def test_cli_average(ms, tmp_path):
     pytest.importorskip("africanus.averaging", reason="codex-africanus not installed")
     out = str(tmp_path / "avg.ms")
