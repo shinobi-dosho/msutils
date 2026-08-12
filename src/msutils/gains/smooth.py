@@ -174,7 +174,9 @@ def _spacing(axis: np.ndarray) -> float:
     return float(np.median(np.diff(np.sort(axis))))
 
 
-def _window_samples(window: int | str | None, coordinate: np.ndarray, *, units: dict, what: str) -> int:
+def _window_samples(
+    window: int | str | None, coordinate: np.ndarray, *, units: dict, what: str
+) -> int:
     """A window as a number of samples.
 
     A bare integer counts solutions; a string with a unit (``"120s"``,
@@ -188,7 +190,9 @@ def _window_samples(window: int | str | None, coordinate: np.ndarray, *, units: 
         return max(int(window), 1)
     match = _WINDOW_PATTERN.match(str(window))
     if not match:
-        raise ValueError(f"cannot read {what} window {window!r} -- expected a sample count or e.g. '120s' / '8MHz'")
+        raise ValueError(
+            f"cannot read {what} window {window!r} -- expected a sample count or e.g. '120s' / '8MHz'"
+        )
     value, unit = float(match.group(1)), match.group(2).lower()
     if not unit:
         return max(round(value), 1)
@@ -351,7 +355,9 @@ def smooth(
 
     def _smooth_block(block: GainBlock) -> GainBlock:
         time_samples = _window_samples(time_window, block.times, units=_TIME_UNITS, what="time")
-        freq_samples = _window_samples(freq_window, block.freqs, units=_FREQ_UNITS, what="frequency")
+        freq_samples = _window_samples(
+            freq_window, block.freqs, units=_FREQ_UNITS, what="frequency"
+        )
         kernels = {}
         if time_samples > 1:
             kernels[0] = _kernel(time_samples, kernel)
@@ -361,7 +367,9 @@ def smooth(
         valid = ~block.flags
         if not kernels:
             records.append(
-                SmoothedBlock(block.field_id, block.spw_id, block.direction, time_samples, freq_samples)
+                SmoothedBlock(
+                    block.field_id, block.spw_id, block.direction, time_samples, freq_samples
+                )
             )
             return block
 
@@ -394,7 +402,10 @@ def smooth(
             # to fall back on.
             direction = np.divide(vector, length, out=np.zeros_like(vector), where=length > 0)
             fallback = np.divide(
-                block.gains, np.abs(block.gains), out=np.zeros_like(vector), where=np.abs(block.gains) > 0
+                block.gains,
+                np.abs(block.gains),
+                out=np.zeros_like(vector),
+                where=np.abs(block.gains) > 0,
             )
             direction = np.where(length > 0, direction, fallback)
             result = direction * amplitude
@@ -404,7 +415,9 @@ def smooth(
         flags = block.flags & ~(weight > 0) if fill else block.flags
         filled = int((block.flags & ~flags).sum())
         records.append(
-            SmoothedBlock(block.field_id, block.spw_id, block.direction, time_samples, freq_samples, filled)
+            SmoothedBlock(
+                block.field_id, block.spw_id, block.direction, time_samples, freq_samples, filled
+            )
         )
         return block.with_gains(result, flags=flags)
 

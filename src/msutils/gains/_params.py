@@ -50,7 +50,9 @@ def classify_parameters(names) -> tuple[str, ...]:
     kinds = []
     for name in names:
         lowered = str(name).lower()
-        kinds.append(next((kind for hint, kind in PARAMETER_KINDS.items() if hint in lowered), "other"))
+        kinds.append(
+            next((kind for hint, kind in PARAMETER_KINDS.items() if hint in lowered), "other")
+        )
     return tuple(kinds)
 
 

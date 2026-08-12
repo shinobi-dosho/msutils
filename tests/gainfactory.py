@@ -151,7 +151,9 @@ def make_caltable(
     width = 10e6 / max(nchan, 4)
     spw_tab.putcol(
         "CHAN_FREQ",
-        np.array([[1.4e9 + s * 100e6 + c * width for c in range(max(nchan, 4))] for s in range(nspw)]),
+        np.array(
+            [[1.4e9 + s * 100e6 + c * width for c in range(max(nchan, 4))] for s in range(nspw)]
+        ),
     )
     spw_tab.close()
     tab.putkeyword("SPECTRAL_WINDOW", f"Table: {spw_path}")
@@ -243,8 +245,10 @@ def make_quartical_store(
                 param_freq = np.array([1.4e9])
         variables = {
             "gains": (("gain_time", "gain_freq", "antenna", "direction", "correlation"), gains),
-            "gain_flags": (("gain_time", "gain_freq", "antenna", "direction"),
-                           np.zeros((ntime, nchan, nant, ndir), dtype=np.int8)),
+            "gain_flags": (
+                ("gain_time", "gain_freq", "antenna", "direction"),
+                np.zeros((ntime, nchan, nant, ndir), dtype=np.int8),
+            ),
         }
         coords = {
             "gain_time": T0 + np.arange(ntime) * 60.0,
@@ -255,10 +259,13 @@ def make_quartical_store(
         }
         if param_names:
             variables["params"] = (
-                ("param_time", "param_freq", "antenna", "direction", "param_name"), params)
+                ("param_time", "param_freq", "antenna", "direction", "param_name"),
+                params,
+            )
             variables["param_flags"] = (
                 ("param_time", "param_freq", "antenna", "direction"),
-                np.zeros(params.shape[:4], dtype=np.int8))
+                np.zeros(params.shape[:4], dtype=np.int8),
+            )
             coords["param_time"] = coords["gain_time"]
             coords["param_freq"] = param_freq
             coords["param_name"] = list(param_names)
@@ -273,7 +280,9 @@ def make_quartical_store(
                 "TYPE": gain_type,
             },
         )
-        dataset.to_zarr(os.path.join(path, term, f"{term}_{index}"), zarr_format=2, consolidated=False)
+        dataset.to_zarr(
+            os.path.join(path, term, f"{term}_{index}"), zarr_format=2, consolidated=False
+        )
 
     # The store root and each term are zarr *groups* in their own right --
     # `to_zarr` only marks the dataset it writes, and a reader identifying a

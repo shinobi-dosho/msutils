@@ -155,7 +155,11 @@ class GainBlock:
         """The parameters as a masked array, flags applied."""
         if self.params is None:
             raise ValueError("this block carries no parameters")
-        mask = np.zeros(self.params.shape, dtype=bool) if self.param_flags is None else self.param_flags
+        mask = (
+            np.zeros(self.params.shape, dtype=bool)
+            if self.param_flags is None
+            else self.param_flags
+        )
         return np.ma.masked_array(self.params, mask=mask)
 
     def with_params(self, params: np.ndarray, gains: np.ndarray | None = None) -> GainBlock:
@@ -166,7 +170,11 @@ class GainBlock:
         block that updated one alone would be true for one consumer and
         stale for the other.
         """
-        return replace(self, params=np.asarray(params), gains=self.gains if gains is None else np.asarray(gains))
+        return replace(
+            self,
+            params=np.asarray(params),
+            gains=self.gains if gains is None else np.asarray(gains),
+        )
 
     def masked(self) -> np.ma.MaskedArray:
         """The gains as a masked array, flags applied.
@@ -266,7 +274,9 @@ class GainTable:
     ) -> GainTable:
         """The sub-table matching a field/spw/direction selection."""
         field_id = None if field is None else self.resolve_field(field)
-        spws = None if spw is None else {int(s) for s in (spw if isinstance(spw, Sequence) else [spw])}
+        spws = (
+            None if spw is None else {int(s) for s in (spw if isinstance(spw, Sequence) else [spw])}
+        )
         blocks = [
             b
             for b in self.blocks

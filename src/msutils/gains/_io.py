@@ -43,7 +43,9 @@ def detect_format(path: str | Path) -> str:
     )
 
 
-def read_gains(path: str | Path, *, format: str | None = None, term: str | None = None) -> GainTable:
+def read_gains(
+    path: str | Path, *, format: str | None = None, term: str | None = None
+) -> GainTable:
     """Read gains from a CASA caltable or a QuartiCal store.
 
     Args:
@@ -61,7 +63,9 @@ def read_gains(path: str | Path, *, format: str | None = None, term: str | None 
     if format == "quartical":
         return read_quartical(path, term=term)
     if term is not None:
-        raise ValueError("`term` selects a term within a QuartiCal store; a CASA caltable holds one term")
+        raise ValueError(
+            "`term` selects a term within a QuartiCal store; a CASA caltable holds one term"
+        )
     return read_casa(path)
 
 

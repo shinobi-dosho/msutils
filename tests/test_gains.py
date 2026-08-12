@@ -144,7 +144,9 @@ def test_the_gain_threshold_drops_outlying_amplitudes(tmp_path):
         tab.putcol("CPARAM", params)
 
     loose = gains.fluxscale(path, transfer_field="GAINCAL", reference_field="REFCAL")
-    tight = gains.fluxscale(path, transfer_field="GAINCAL", reference_field="REFCAL", gain_threshold=0.5)
+    tight = gains.fluxscale(
+        path, transfer_field="GAINCAL", reference_field="REFCAL", gain_threshold=0.5
+    )
     # the median already resists one outlier in five times; the threshold makes
     # that explicit rather than incidental
     assert tight.flux_jy == pytest.approx(5.0, rel=2e-2)
@@ -184,9 +186,7 @@ def test_two_separate_tables_need_no_appended_copy(tmp_path):
 def test_the_output_holds_the_transfer_field_alone_rescaled(caltable, tmp_path):
     path, instrumental = caltable
     out = tmp_path / "rescaled.G0"
-    result = gains.fluxscale(
-        path, transfer_field="GAINCAL", reference_field="REFCAL", output=out
-    )
+    result = gains.fluxscale(path, transfer_field="GAINCAL", reference_field="REFCAL", output=out)
     assert result.output_path == str(out)
 
     written = gains.read_gains(out)
@@ -212,9 +212,7 @@ def test_writing_refuses_an_existing_destination(caltable, tmp_path):
 def test_json_report_carries_the_measurement_and_its_provenance(caltable, tmp_path):
     path, _ = caltable
     report = tmp_path / "flux.json"
-    gains.fluxscale(
-        path, transfer_field="GAINCAL", reference_field="REFCAL", json_out=report
-    )
+    gains.fluxscale(path, transfer_field="GAINCAL", reference_field="REFCAL", json_out=report)
     written = json.loads(report.read_text())
     assert written["schema_version"] == 1
     assert written["transfer_field"] == "GAINCAL"
@@ -271,9 +269,7 @@ def test_the_statistic_is_a_recorded_choice(caltable):
     assert mean.flux_jy == pytest.approx(median.flux_jy, rel=1e-2)
 
     with pytest.raises(ValueError, match="unknown statistic"):
-        gains.fluxscale(
-            path, transfer_field="GAINCAL", reference_field="REFCAL", statistic="mode"
-        )
+        gains.fluxscale(path, transfer_field="GAINCAL", reference_field="REFCAL", statistic="mode")
 
 
 # ---- normalise --------------------------------------------------------
@@ -411,7 +407,9 @@ def test_the_report_records_the_factors_that_left(caltable, tmp_path):
     # a block normalisation should have taken out
     transfer = next(b for b in written["blocks"] if b["field_id"] == 1)
     reference = next(b for b in written["blocks"] if b["field_id"] == 0)
-    assert transfer["factor_summary"] / reference["factor_summary"] == pytest.approx(np.sqrt(5.0), rel=0.05)
+    assert transfer["factor_summary"] / reference["factor_summary"] == pytest.approx(
+        np.sqrt(5.0), rel=0.05
+    )
     assert result.blocks[0].factors["m000"]
 
 
@@ -457,7 +455,9 @@ def _write_gains(path, values, *, field_id=1):
         order = sorted(set(times[fields == field_id].tolist()))
         for row in np.flatnonzero(fields == field_id):
             ti = order.index(times[row])
-            params[row, 0, :] = values[ti, ants[row], :].real if column == "FPARAM" else values[ti, ants[row], :]
+            params[row, 0, :] = (
+                values[ti, ants[row], :].real if column == "FPARAM" else values[ti, ants[row], :]
+            )
         tab.putcol(column, params)
 
 
@@ -600,8 +600,12 @@ def test_a_gaussian_kernel_weights_the_centre_more(tmp_path):
     box = gains.smooth(path, output=tmp_path / "box.G0", time_window=5, kernel="boxcar")
     gauss = gains.smooth(path, output=tmp_path / "gauss.G0", time_window=5, kernel="gaussian")
     assert box.kernel == "boxcar" and gauss.kernel == "gaussian"
-    box_peak = np.abs(gains.read_gains(tmp_path / "box.G0").select(field=1).blocks[0].gains[10, 0, 0, 0])
-    gauss_peak = np.abs(gains.read_gains(tmp_path / "gauss.G0").select(field=1).blocks[0].gains[10, 0, 0, 0])
+    box_peak = np.abs(
+        gains.read_gains(tmp_path / "box.G0").select(field=1).blocks[0].gains[10, 0, 0, 0]
+    )
+    gauss_peak = np.abs(
+        gains.read_gains(tmp_path / "gauss.G0").select(field=1).blocks[0].gains[10, 0, 0, 0]
+    )
     assert gauss_peak > box_peak  # the gaussian keeps more of the centre sample
 
 

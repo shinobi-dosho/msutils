@@ -165,7 +165,9 @@ class FluxscaleResult:
         return str(path)
 
 
-def _align(reference: GainBlock, transfer: GainBlock) -> tuple[list[int], list[int], list[int], list[int], str]:
+def _align(
+    reference: GainBlock, transfer: GainBlock
+) -> tuple[list[int], list[int], list[int], list[int], str]:
     """Index maps putting the two blocks' antennas and correlations in step.
 
     Antennas match by label and nothing else: a positional match between two
@@ -298,7 +300,9 @@ def fluxscale(
             correlations cannot be matched -- every one of which would
             otherwise yield a plausible wrong number.
     """
-    transfer_gains = transfer if isinstance(transfer, GainTable) else read_gains(transfer, term=term)
+    transfer_gains = (
+        transfer if isinstance(transfer, GainTable) else read_gains(transfer, term=term)
+    )
     if reference is None:
         reference_gains = transfer_gains
     elif isinstance(reference, GainTable):
@@ -337,7 +341,9 @@ def fluxscale(
         )
         fluxes.append(measurement)
         scales[spw_id] = measurement.flux_jy
-        LOGGER.info(measurement.render(transfer_gains.field_names.get(transfer_id, str(transfer_id))))
+        LOGGER.info(
+            measurement.render(transfer_gains.field_names.get(transfer_id, str(transfer_id)))
+        )
 
     result = FluxscaleResult(
         transfer_field=transfer_gains.field_names.get(transfer_id, str(transfer_id)),

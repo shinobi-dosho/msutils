@@ -21,8 +21,10 @@ Usage::
     import msutils.gains as gains
 
     result = gains.fluxscale(
-        "secondary.G0", "primary.G0",
-        transfer_field="J0825-5010", reference_field="J0408-6545",
+        "secondary.G0",
+        "primary.G0",
+        transfer_field="J0825-5010",
+        reference_field="J0408-6545",
         output="secondary.G0.fluxscaled",
     )
     print(result.flux_jy)

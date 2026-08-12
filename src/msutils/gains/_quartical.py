@@ -99,7 +99,9 @@ def is_quartical_store(path: str | Path) -> bool:
 def quartical_terms(path: str | Path) -> tuple[str, ...]:
     """The term names a store holds (``("K", "G")``), in directory order."""
     path = Path(path)
-    return tuple(sorted(child.name for child in path.iterdir() if child.is_dir() and _is_zarr_group(child)))
+    return tuple(
+        sorted(child.name for child in path.iterdir() if child.is_dir() and _is_zarr_group(child))
+    )
 
 
 def _resolve_term(path: Path, term: str | None) -> str:
@@ -183,13 +185,19 @@ def read_quartical(path: str | Path, *, term: str | None = None) -> GainTable:
                 "name": dataset_path.name,
                 "params": np.asarray(dataset["params"].values) if has_params else None,
                 "param_flags": (
-                    np.asarray(dataset["param_flags"].values).astype(bool) if "param_flags" in dataset else None
+                    np.asarray(dataset["param_flags"].values).astype(bool)
+                    if "param_flags" in dataset
+                    else None
                 ),
                 "param_names": (
-                    tuple(str(n) for n in np.asarray(dataset["param_name"].values)) if has_params else ()
+                    tuple(str(n) for n in np.asarray(dataset["param_name"].values))
+                    if has_params
+                    else ()
                 ),
                 "param_freqs": (
-                    np.asarray(dataset["param_freq"].values, dtype=float) if "param_freq" in dataset.coords else None
+                    np.asarray(dataset["param_freq"].values, dtype=float)
+                    if "param_freq" in dataset.coords
+                    else None
                 ),
                 "field_id": field_id,
                 "spw_id": spw_id,
@@ -231,7 +239,9 @@ def read_quartical(path: str | Path, *, term: str | None = None) -> GainTable:
             if first["params"] is not None:
                 params = np.concatenate([entry["params"][:, :, :, index, :] for entry in entries])
                 if first["param_flags"] is not None:
-                    param_flags = np.concatenate([entry["param_flags"][:, :, :, index] for entry in entries])
+                    param_flags = np.concatenate(
+                        [entry["param_flags"][:, :, :, index] for entry in entries]
+                    )
                     param_flags = np.repeat(param_flags[..., None], params.shape[-1], axis=-1)
             blocks.append(
                 GainBlock(
@@ -282,7 +292,9 @@ def read_quartical(path: str | Path, *, term: str | None = None) -> GainTable:
 UNPARAMETERISED_TYPES = ("complex", "diag_complex", "feed_flip", "leakage")
 
 
-def write_quartical(gains: GainTable, dest: str | Path, *, template: str | Path | None = None) -> str:
+def write_quartical(
+    gains: GainTable, dest: str | Path, *, template: str | Path | None = None
+) -> str:
     """Write a :class:`GainTable` back out as a QuartiCal gain store.
 
     The output is a **copy of the source store** with the term's `gains` and
@@ -320,7 +332,9 @@ def write_quartical(gains: GainTable, dest: str | Path, *, template: str | Path 
         raise ValueError("write_quartical needs a template store (the gains carry no source path)")
     if dest.exists():
         raise FileExistsError(f"{dest} already exists -- gain operations never overwrite in place")
-    unhandled = [block.key for block in gains.blocks if block.chunks and block.parameterised is False]
+    unhandled = [
+        block.key for block in gains.blocks if block.chunks and block.parameterised is False
+    ]
     if gains.gain_type not in UNPARAMETERISED_TYPES and unhandled:
         raise ValueError(
             f"term {gains.term!r} is of parameterised type {gains.gain_type!r}, but the blocks {unhandled} "
@@ -343,7 +357,9 @@ def write_quartical(gains: GainTable, dest: str | Path, *, template: str | Path 
         for name, count in block.chunks:
             dataset_path = dest / gains.term / name
             if not dataset_path.exists():
-                raise ValueError(f"{template} has no dataset {name!r} for term {gains.term!r} to write back to")
+                raise ValueError(
+                    f"{template} has no dataset {name!r} for term {gains.term!r} to write back to"
+                )
             dataset = _open_dataset(dataset_path)
             directions = [int(d) for d in np.asarray(dataset["direction"].values).tolist()]
             attrs = dataset.attrs
@@ -360,7 +376,9 @@ def write_quartical(gains: GainTable, dest: str | Path, *, template: str | Path 
                     "come from this store"
                 )
             if block.direction not in directions:
-                raise ValueError(f"dataset {name!r} holds directions {directions}, not {block.direction}")
+                raise ValueError(
+                    f"dataset {name!r} holds directions {directions}, not {block.direction}"
+                )
             index = directions.index(block.direction)
 
             values = zarr.open_array(str(dataset_path / "gains"), mode="r+")
