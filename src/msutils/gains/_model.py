@@ -80,6 +80,20 @@ class GainBlock:
             is what lets a writer put values back exactly where they came
             from instead of reconstructing an ordering; None for formats
             that are not row-based.
+        params: For a parameterised term, the parameters the solver
+            actually fitted -- ``(time, freq, antenna, parameter)``, with
+            its own frequency axis (`param_freqs`), since a delay is one
+            number across a band whose gains are per channel. **This is the
+            authoritative array for such a term**: QuartiCal rebuilds the
+            gains from it on load, so an operation that changes `gains`
+            alone is discarded. None for an unparameterised term, where
+            `gains` is the whole solution.
+        param_flags: Flags for `params`, same shape.
+        param_names: What each parameter is (``"amplitude_XX"``,
+            ``"delay_YY"``) -- see `msutils.gains._params`, which reads
+            these rather than a table of type names to decide what an
+            operation can do.
+        param_freqs: The frequency axis `params` lives on.
         chunks: For a QuartiCal-sourced block, ``(dataset name, number of
             times)`` per source dataset, in time order. A store splits one
             field's solutions across several datasets -- QuartiCal chunks
@@ -99,6 +113,10 @@ class GainBlock:
     spw_id: int | None = None
     direction: int = 0
     rows: np.ndarray | None = None
+    params: np.ndarray | None = None
+    param_flags: np.ndarray | None = None
+    param_names: tuple[str, ...] = ()
+    param_freqs: np.ndarray | None = None
     chunks: tuple[tuple[str, int], ...] | None = None
 
     def __post_init__(self) -> None:
@@ -125,6 +143,30 @@ class GainBlock:
     def key(self) -> tuple[int | None, int | None, int]:
         """`(field_id, spw_id, direction)` -- what makes a block unique."""
         return (self.field_id, self.spw_id, self.direction)
+
+    @property
+    def parameterised(self) -> bool:
+        """Whether this block's solution lives in `params` rather than in
+        `gains`. An operation that ignores this on a parameterised term
+        produces a store that reads back unchanged."""
+        return self.params is not None
+
+    def masked_params(self) -> np.ma.MaskedArray:
+        """The parameters as a masked array, flags applied."""
+        if self.params is None:
+            raise ValueError("this block carries no parameters")
+        mask = np.zeros(self.params.shape, dtype=bool) if self.param_flags is None else self.param_flags
+        return np.ma.masked_array(self.params, mask=mask)
+
+    def with_params(self, params: np.ndarray, gains: np.ndarray | None = None) -> GainBlock:
+        """A copy carrying new parameters, and the gains they imply.
+
+        Both, because the two have to agree: QuartiCal reads the params and
+        every other reader (including this package) reads the gains, so a
+        block that updated one alone would be true for one consumer and
+        stale for the other.
+        """
+        return replace(self, params=np.asarray(params), gains=self.gains if gains is None else np.asarray(gains))
 
     def masked(self) -> np.ma.MaskedArray:
         """The gains as a masked array, flags applied.

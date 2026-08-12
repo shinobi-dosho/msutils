@@ -52,13 +52,27 @@ A CASA `K` table stores delays as real parameters, not phasors. There the
 complex/renormalise dance would be meaningless, so `param_type == "float"`
 smooths the values directly -- same normalised convolution, no phase, no
 renormalisation.
+
+A QuartiCal parameterised term is the same idea with more structure: the
+solution is a set of named parameters (`delay_XX`, `phase_offset_YY`,
+`amplitude_XX`) on their own frequency grid, and QuartiCal reads *those*
+back rather than the gains. So they are what gets filtered -- each on its
+own terms: a parameter named as a phase goes through the complex plane for
+the same wrap reason as above, and everything else is filtered directly.
+
+The gains array is then rebuilt from the smoothed parameters where that is
+unambiguous (an amplitude *is* the gain; a phase is its argument) and the
+write is **refused** where it is not. A delay's reconstruction needs the
+reference frequency the solver used, and getting it wrong is invisible in
+the array while adding a per-antenna constant phase to everything the term
+corrects.
 """
 
 from __future__ import annotations
 
 import json
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
 import numpy as np
@@ -67,6 +81,7 @@ from msutils._log import create_logger
 
 from ._io import read_gains, write_gains
 from ._model import GainBlock, GainTable
+from ._params import classify_parameters, rebuild_gains
 
 __all__ = ["KERNELS", "SmoothResult", "SmoothedBlock", "smooth"]
 
@@ -239,6 +254,49 @@ def _normalised_convolve(
     return smoothed, weight
 
 
+def _smooth_parameters(block: GainBlock, kernels: dict, kernel: str, *, fill: bool) -> GainBlock:
+    """Filter a parameterised term's parameters, then rebuild its gains.
+
+    Each parameter is filtered on its own terms: one named as a phase goes
+    through the complex plane (the wrap argument again, one level down), and
+    everything else -- a delay, a TEC, an amplitude -- is a plain number and
+    is filtered directly.
+    """
+    kinds = classify_parameters(block.param_names)
+    # The parameters carry their own frequency axis: a delay is one number
+    # across a band whose gains are per channel, so the frequency kernel is
+    # sized against the parameter grid rather than the gains'.
+    param_kernels = dict(kernels)
+    if 1 in param_kernels and block.param_freqs is not None and block.param_freqs.size == 1:
+        param_kernels.pop(1)
+
+    values = block.masked_params()
+    valid = ~np.ma.getmaskarray(values)
+    smoothed = np.array(values.filled(0.0), dtype=float)
+    for index, kind in enumerate(kinds):
+        column = smoothed[..., index : index + 1]
+        column_valid = valid[..., index : index + 1]
+        if kind == "phase":
+            vector, weight = _normalised_convolve(np.exp(1j * column), column_valid, param_kernels)
+            filtered = np.angle(vector)
+        else:
+            filtered, weight = _normalised_convolve(column, column_valid, param_kernels)
+        smoothed[..., index : index + 1] = np.where(weight > 0, filtered, column)
+
+    rebuilt = rebuild_gains(smoothed, block.param_names, n_corr=len(block.corrs))
+    if rebuilt is None:
+        raise ValueError(
+            f"this term's parameters {list(block.param_names)} can be smoothed, but its gains cannot be "
+            "rebuilt from them: that needs the reference frequency the solver measured against, and a wrong "
+            "one is invisible in the array while adding a per-antenna constant phase to everything the term "
+            "corrects. Smoothing is supported for amplitude- and phase-parameterised terms."
+        )
+    flags = block.flags
+    if fill:
+        flags = np.zeros_like(block.flags)
+    return replace(block, params=smoothed, gains=rebuilt, flags=flags)
+
+
 def smooth(
     gains: str | Path | GainTable,
     *,
@@ -306,6 +364,20 @@ def smooth(
                 SmoothedBlock(block.field_id, block.spw_id, block.direction, time_samples, freq_samples)
             )
             return block
+
+        if block.parameterised:
+            result_block = _smooth_parameters(block, kernels, kernel, fill=fill)
+            records.append(
+                SmoothedBlock(
+                    block.field_id,
+                    block.spw_id,
+                    block.direction,
+                    time_samples,
+                    freq_samples,
+                    int((block.flags & ~result_block.flags).sum()),
+                )
+            )
+            return result_block
 
         if is_parameter:
             # A delay is a number, not a phasor: filter it and stop. The

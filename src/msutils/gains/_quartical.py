@@ -26,9 +26,12 @@ of which the model has to undo:
 * **flags carry no correlation axis.** QuartiCal flags a solution, not a
   correlation of one, so the flag array is broadcast across correlations on
   the way in and collapsed with `any` on the way out.
-* **most terms are parameterised.** The `gains` array is not the whole
-  solution for them -- see `UNPARAMETERISED_TYPES`, which is why writing is
-  refused for most of what a real chain solves.
+* **most terms are parameterised**, including `amplitude` and `phase`. The
+  `gains` array is not the authoritative one for them: QuartiCal reads
+  `params` back and rebuilds the gains from it, so both are carried through
+  the model and both are written. What an *operation* can do with a given
+  parameterisation is a separate question, answered by
+  `msutils.gains._params` from the parameters' own names.
 * **a store holds several terms**, unlike a caltable which holds one. So
   `read_quartical` takes a term, defaulting to the only one when the store
   holds one and refusing to guess when it holds more.
@@ -171,9 +174,23 @@ def read_quartical(path: str | Path, *, term: str | None = None) -> GainTable:
         flags = np.repeat(flags[..., None], gains.shape[-1], axis=-1)
         antennas = tuple(str(a) for a in np.asarray(dataset["antenna"].values))
         antenna_names = antenna_names or antennas
+        # A parameterised term's solution lives in `params`; QuartiCal reads
+        # those back rather than the gains, so they come along or the term
+        # cannot be operated on at all.
+        has_params = "params" in dataset and "param_name" in dataset.coords
         read.append(
             {
                 "name": dataset_path.name,
+                "params": np.asarray(dataset["params"].values) if has_params else None,
+                "param_flags": (
+                    np.asarray(dataset["param_flags"].values).astype(bool) if "param_flags" in dataset else None
+                ),
+                "param_names": (
+                    tuple(str(n) for n in np.asarray(dataset["param_name"].values)) if has_params else ()
+                ),
+                "param_freqs": (
+                    np.asarray(dataset["param_freq"].values, dtype=float) if "param_freq" in dataset.coords else None
+                ),
                 "field_id": field_id,
                 "spw_id": spw_id,
                 "gains": gains,
@@ -210,6 +227,12 @@ def read_quartical(path: str | Path, *, term: str | None = None) -> GainTable:
         chunks = tuple((entry["name"], int(entry["times"].size)) for entry in entries)
         times = np.concatenate([entry["times"] for entry in entries])
         for index, direction in enumerate(first["directions"]):
+            params = param_flags = None
+            if first["params"] is not None:
+                params = np.concatenate([entry["params"][:, :, :, index, :] for entry in entries])
+                if first["param_flags"] is not None:
+                    param_flags = np.concatenate([entry["param_flags"][:, :, :, index] for entry in entries])
+                    param_flags = np.repeat(param_flags[..., None], params.shape[-1], axis=-1)
             blocks.append(
                 GainBlock(
                     gains=np.concatenate([entry["gains"][:, :, :, index, :] for entry in entries]),
@@ -221,6 +244,10 @@ def read_quartical(path: str | Path, *, term: str | None = None) -> GainTable:
                     field_id=field_id,
                     spw_id=spw_id,
                     direction=direction,
+                    params=params,
+                    param_flags=param_flags,
+                    param_names=first["param_names"],
+                    param_freqs=first["param_freqs"],
                     chunks=chunks,
                 )
             )
@@ -240,13 +267,18 @@ def read_quartical(path: str | Path, *, term: str | None = None) -> GainTable:
 #: Term types whose `gains` array is the whole solution. Everything else is
 #: **parameterised**: QuartiCal stores the parameters (a delay in ns, an
 #: amplitude, a phase) alongside the gains and *reconstructs* the gains from
-#: them when the term is loaded, so a writer that changed `gains` and left
-#: `params` alone would be silently overruled on the next apply.
+#: them when the term is loaded (`quartical/interpolation/interpolate.py`:
+#: ``data_field = "params" if parameterized else "gains"``), so a store whose
+#: `gains` were changed and whose `params` were not reads back unchanged.
 #:
 #: Read off QuartiCal 0.2.7's own `quartical.gains.TERM_TYPES` -- the types
 #: with no `param_axes` -- rather than guessed at. Note `amplitude` and
 #: `phase` are parameterised despite sounding elementary, which is exactly
 #: the kind of thing not to assume.
+#:
+#: Used only to catch a block that lost its parameters on the way through;
+#: the reader carries them, so an ordinary read-operate-write round trip on
+#: a parameterised term is supported.
 UNPARAMETERISED_TYPES = ("complex", "diag_complex", "feed_flip", "leakage")
 
 
@@ -288,11 +320,13 @@ def write_quartical(gains: GainTable, dest: str | Path, *, template: str | Path 
         raise ValueError("write_quartical needs a template store (the gains carry no source path)")
     if dest.exists():
         raise FileExistsError(f"{dest} already exists -- gain operations never overwrite in place")
-    if gains.gain_type and gains.gain_type not in UNPARAMETERISED_TYPES:
+    unhandled = [block.key for block in gains.blocks if block.chunks and block.parameterised is False]
+    if gains.gain_type not in UNPARAMETERISED_TYPES and unhandled:
         raise ValueError(
-            f"term {gains.term!r} is of parameterised type {gains.gain_type!r}: QuartiCal rebuilds its gains "
-            f"from the `params` array when the term is loaded, so writing gains alone would be silently "
-            f"overruled on the next apply. Writable types are {list(UNPARAMETERISED_TYPES)}."
+            f"term {gains.term!r} is of parameterised type {gains.gain_type!r}, but the blocks {unhandled} "
+            "carry no parameters. QuartiCal rebuilds such a term's gains from its `params` array when it "
+            "loads them, so a store written from gains alone would read back unchanged. Read the term with "
+            "this package (which carries the parameters through) rather than constructing blocks by hand."
         )
 
     shutil.copytree(template, dest)
@@ -331,6 +365,22 @@ def write_quartical(gains: GainTable, dest: str | Path, *, template: str | Path 
 
             values = zarr.open_array(str(dataset_path / "gains"), mode="r+")
             flags = zarr.open_array(str(dataset_path / "gain_flags"), mode="r+")
+            if block.params is not None:
+                # The authoritative array for a parameterised term. Written
+                # alongside the gains, never instead of them: QuartiCal reads
+                # the params and every other reader reads the gains.
+                parameters = zarr.open_array(str(dataset_path / "params"), mode="r+")
+                param_chunk = parameters[...]
+                piece = block.params[offset : offset + count]
+                expected_params = param_chunk[:, :, :, index, :].shape
+                if piece.shape != expected_params:
+                    raise ValueError(
+                        f"block (field {block.field_id}, spw {block.spw_id}, direction {block.direction}) "
+                        f"contributes parameters of shape {piece.shape} to dataset {name!r}, which expects "
+                        f"{expected_params}"
+                    )
+                param_chunk[:, :, :, index, :] = piece
+                parameters[...] = param_chunk
             gain_chunk = values[...]
             flag_chunk = flags[...]
             expected = gain_chunk[:, :, :, index, :].shape

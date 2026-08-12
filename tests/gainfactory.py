@@ -193,6 +193,7 @@ def make_quartical_store(
     *,
     term="G",
     gain_type="complex",
+    param_names=(),
     nant=4,
     ntime=3,
     nchan=2,
@@ -203,6 +204,11 @@ def make_quartical_store(
     seed=0,
 ):
     """Write a small QuartiCal-shaped gain store and return its path.
+
+    `param_names` makes the store *parameterised*: QuartiCal names its
+    parameters (``amplitude_XX``, ``delay_YY``) and reads them back instead
+    of the gains for such a term, so a store without them exercises only
+    half the code that matters.
 
     Built with xarray/zarr rather than by running a solve: the layout is
     what matters here -- ``gains`` with axes (gain_time, gain_freq, antenna,
@@ -222,22 +228,43 @@ def make_quartical_store(
         shape = (ntime, nchan, nant, ndir, ncorr)
         amplitude = np.sqrt(flux) * (0.7 + 0.2 * rng.random(shape))
         phase = 0.1 * rng.standard_normal(shape)
+        gains = amplitude * np.exp(1j * phase)
+        if param_names:
+            # An amplitude term's parameters ARE its gains (verified against a
+            # real store: params == gains.real, phase identically zero), so a
+            # fixture that says otherwise would test arithmetic nothing does.
+            nparam = len(param_names)
+            if all("amplitude" in n for n in param_names):
+                params = amplitude.reshape(ntime, nchan, nant, ndir, ncorr)
+                gains = params.astype(complex)
+                param_freq = 1.4e9 + np.arange(nchan) * 1e6
+            else:
+                params = 0.1 * rng.standard_normal((ntime, 1, nant, ndir, nparam))
+                param_freq = np.array([1.4e9])
+        variables = {
+            "gains": (("gain_time", "gain_freq", "antenna", "direction", "correlation"), gains),
+            "gain_flags": (("gain_time", "gain_freq", "antenna", "direction"),
+                           np.zeros((ntime, nchan, nant, ndir), dtype=np.int8)),
+        }
+        coords = {
+            "gain_time": T0 + np.arange(ntime) * 60.0,
+            "gain_freq": 1.4e9 + np.arange(nchan) * 1e6,
+            "antenna": [f"m{i:03d}" for i in range(nant)],
+            "direction": np.arange(ndir, dtype=np.int32),
+            "correlation": ["XX", "YY"][:ncorr],
+        }
+        if param_names:
+            variables["params"] = (
+                ("param_time", "param_freq", "antenna", "direction", "param_name"), params)
+            variables["param_flags"] = (
+                ("param_time", "param_freq", "antenna", "direction"),
+                np.zeros(params.shape[:4], dtype=np.int8))
+            coords["param_time"] = coords["gain_time"]
+            coords["param_freq"] = param_freq
+            coords["param_name"] = list(param_names)
         dataset = xr.Dataset(
-            {
-                "gains": (("gain_time", "gain_freq", "antenna", "direction", "correlation"),
-                          amplitude * np.exp(1j * phase)),
-                "gain_flags": (("gain_time", "gain_freq", "antenna", "direction"),
-                               np.zeros((ntime, nchan, nant, ndir), dtype=np.int8)),
-                "params": (("param_time", "param_freq", "antenna", "direction", "param_name"),
-                           np.zeros((ntime, 1, nant, ndir, ncorr))),
-            },
-            coords={
-                "gain_time": T0 + np.arange(ntime) * 60.0,
-                "gain_freq": 1.4e9 + np.arange(nchan) * 1e6,
-                "antenna": [f"m{i:03d}" for i in range(nant)],
-                "direction": np.arange(ndir, dtype=np.int32),
-                "correlation": ["XX", "YY"][:ncorr],
-            },
+            variables,
+            coords=coords,
             attrs={
                 "FIELD_ID": field_id,
                 "DATA_DESC_ID": 0,

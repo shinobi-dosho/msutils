@@ -100,11 +100,20 @@ same one `MSInfo` follows: **one model, many formats**.
   concatenated on read and split back on write via `GainBlock.chunks`. Read
   them as they sit on disk and a two-hour smoothing window silently becomes
   "whatever one scan held".
-- **Writing a QuartiCal term is refused unless its type is
-  unparameterised.** For everything else -- including `amplitude` and
-  `phase` -- QuartiCal rebuilds the gains from `params` when it loads them,
-  so a writer that touched only `gains` would be silently overruled. The
-  list comes from QuartiCal's own `TERM_TYPES`, not from intuition.
+- **A parameterised term's `params` are the authoritative array**, not its
+  gains: QuartiCal rebuilds the gains from them on load
+  (`interpolate.py`'s `data_field = "params" if parameterized else
+  "gains"`), so both are carried and both are written, always together.
+  `amplitude` and `phase` are parameterised despite sounding elementary.
+- **What an operation may do with a parameterisation is read off the
+  parameter *names*** (`_params.py`), not a table of type names, so a new
+  term type classifies itself. Three answers, and the distinction matters:
+  a scaling maps onto amplitude parameters exactly; it is **meaningless**
+  on phase-like ones, which describe a gain of unit modulus (verified on
+  real stores: |g| = 1 to machine precision); and smoothing works on any of
+  them but can only rebuild the gains for the unambiguous cases, since a
+  delay's reconstruction needs the solver's reference frequency and a wrong
+  one is invisible in the array.
 - **Nothing is written in place.** Every operation takes an output path and
   refuses an existing one: a half-rewritten caltable is unrecoverable, and a
   pipeline that caches on declared outputs cannot see an in-place edit.

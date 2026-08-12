@@ -10,8 +10,14 @@
   both a CASA caltable and a QuartiCal zarr store fold into, so an operation
   is written once and a format is a reader plus a writer. QuartiCal stores
   are read and written (a write copies the source store and replaces the
-  term's `gains`/`gain_flags`, and is refused for parameterised term types,
-  where QuartiCal rebuilds the gains from `params` on load). Reading or
+  term's arrays). A **parameterised** term -- which is most of them,
+  `amplitude` and `phase` included -- carries its `params` through the model
+  and back out, because QuartiCal rebuilds the gains from those on load;
+  what an operation may do with a given parameterisation is decided from the
+  parameters' own names, so a scaling works on amplitudes, is refused as
+  meaningless on phase-like terms (unit modulus: no amplitude to scale), and
+  smoothing filters the parameters but declines to rebuild a delay's gains,
+  which would need the solver's reference frequency. Reading or
   writing a QuartiCal store needs the new `gains` extra (which is `msv4`'s xarray + zarr, named
   separately because the reason differs); CASA caltables need nothing beyond
   the base install.

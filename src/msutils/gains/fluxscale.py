@@ -57,6 +57,7 @@ from msutils._log import create_logger
 
 from ._io import read_gains, write_gains
 from ._model import GainBlock, GainTable
+from ._params import scale_block
 from ._stats import amplitude_statistic
 
 __all__ = ["FluxDensity", "FluxscaleResult", "fluxscale"]
@@ -356,7 +357,7 @@ def fluxscale(
         # transfer calibrator's gains instrumental, like the reference's, so
         # they can be applied to a target without carrying its flux with them.
         rescaled = transfer_gains.select(field=transfer_id).map(
-            lambda block: block.with_gains(block.gains / np.sqrt(scales[block.spw_id]))
+            lambda block: scale_block(block, np.sqrt(scales[block.spw_id]), what="fluxscale")
         )
         result.output_path = write_gains(rescaled, output, template=transfer_gains.path)
 

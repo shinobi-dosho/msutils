@@ -44,6 +44,12 @@ number per solution set, leaving both structures intact.
 Phases are never touched. A normalisation divides by a positive real
 number, so what changes is amplitude alone; nothing here re-references
 phase to an antenna, which is a different operation with a different name.
+
+For a **parameterised** term the parameters are what QuartiCal reads back,
+so they are what gets divided -- and only when they are amplitudes. A
+delay or phase parameterisation describes a gain of unit modulus, where
+normalising is not unsupported but meaningless (see
+`msutils.gains._params`).
 """
 
 from __future__ import annotations
@@ -58,6 +64,7 @@ from msutils._log import create_logger
 
 from ._io import read_gains, write_gains
 from ._model import GainBlock, GainTable
+from ._params import scale_block
 from ._stats import amplitude_statistic, check_statistic
 
 __all__ = ["AXIS_CHOICES", "SCOPES", "NormaliseResult", "NormalisedBlock", "normalise"]
@@ -232,7 +239,7 @@ def normalise(
                 factors=per_antenna,
             )
         )
-        return block.with_gains(block.gains / factor)
+        return scale_block(block, factor, what="normalise")
 
     normalised = table.map(_normalise_block)
     result = NormaliseResult(

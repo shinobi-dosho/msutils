@@ -671,8 +671,8 @@ def test_writing_a_store_round_trips_through_an_operation(tmp_path):
     # the source is untouched, and everything the model does not represent
     # survived the copy
     assert np.ma.abs(gains.read_gains(path).blocks[0].masked()).mean() > 1.5
-    assert (Path(out) / "G" / "G_0" / "params").exists()
     assert (Path(out) / "G" / "G_0" / "gain_flags").exists()
+    assert (Path(out) / "G" / "G_0" / ".zattrs").exists()
 
 
 def test_flags_collapse_onto_the_solution_when_written(tmp_path):
@@ -695,15 +695,96 @@ def test_flags_collapse_onto_the_solution_when_written(tmp_path):
     assert not written.flags[2, :, 0, :].any()
 
 
-def test_a_parameterised_term_is_refused(tmp_path):
-    """QuartiCal rebuilds a parameterised term's gains from `params` when it
-    loads them, so writing gains alone would be silently overruled."""
+def test_a_parameterised_terms_parameters_come_through_and_go_back(tmp_path):
+    """QuartiCal rebuilds such a term's gains from `params` when it loads
+    them, so the parameters are the authoritative array: an operation that
+    changed gains alone would read back unchanged."""
     from gainfactory import make_quartical_store
 
-    path = make_quartical_store(tmp_path / "delay.qc", term="K", gain_type="delay_and_offset")
-    table = gains.read_gains(path)
-    with pytest.raises(ValueError, match="parameterised type 'delay_and_offset'"):
-        gains.write_gains(table, tmp_path / "nope.qc")
+    path = make_quartical_store(
+        tmp_path / "amp.qc",
+        gain_type="amplitude",
+        param_names=("amplitude_XX", "amplitude_YY"),
+        flux=9.0,
+    )
+    block = gains.read_gains(path).blocks[0]
+    assert block.parameterised
+    assert block.param_names == ("amplitude_XX", "amplitude_YY")
+    # an amplitude term's parameters ARE its gains
+    assert np.allclose(block.params, block.gains.real)
+
+    out = tmp_path / "amp-normalised.qc"
+    gains.normalise(path, output=out, scope="block", statistic="mean")
+    written = gains.read_gains(out).blocks[0]
+    # both arrays moved together, and they still agree
+    assert np.ma.abs(written.masked()).mean() == pytest.approx(1.0)
+    assert np.allclose(written.params, written.gains.real)
+
+
+def test_scaling_a_phase_like_term_is_refused_as_meaningless(tmp_path):
+    """A delay or phase parameterisation describes a gain of unit modulus --
+    verified on real stores, |g| = 1 to machine precision -- so there is no
+    amplitude in it to normalise or bootstrap."""
+    from gainfactory import make_quartical_store
+
+    # A `phase` term, deliberately: its *type* name says nothing about
+    # amplitudes, so the refusal has to come from reading the parameters
+    # rather than from matching the type against a list.
+    path = make_quartical_store(
+        tmp_path / "phase.qc",
+        term="P",
+        gain_type="phase",
+        param_names=("phase_XX", "phase_YY"),
+    )
+    with pytest.raises(ValueError, match="no amplitude in it to scale"):
+        gains.normalise(path, term="P", output=tmp_path / "nope.qc")
+
+    # a delay is refused too, by the coarser check that also covers a CASA
+    # K table, which has no parameters to read
+    delay = make_quartical_store(
+        tmp_path / "delay.qc",
+        term="K",
+        gain_type="delay_and_offset",
+        param_names=("phase_offset_XX", "delay_XX", "phase_offset_YY", "delay_YY"),
+    )
+    with pytest.raises(ValueError, match=r"not an\s+amplitude|no amplitude in it to scale"):
+        gains.normalise(delay, term="K", output=tmp_path / "nope-delay.qc")
+
+
+def test_smoothing_a_parameterised_term_filters_its_parameters(tmp_path):
+    from gainfactory import make_quartical_store
+
+    path = make_quartical_store(
+        tmp_path / "amp-smooth.qc",
+        gain_type="amplitude",
+        param_names=("amplitude_XX", "amplitude_YY"),
+        ntime=9,
+        nchan=1,
+    )
+    out = tmp_path / "amp-smoothed.qc"
+    gains.smooth(path, output=out, time_window=3)
+    before = gains.read_gains(path).blocks[0]
+    after = gains.read_gains(out).blocks[0]
+    assert after.params.std() < before.params.std()
+    # the two arrays still agree, which is what makes the store readable by
+    # QuartiCal (params) and by everything else (gains)
+    assert np.allclose(after.params, after.gains.real)
+
+
+def test_smoothing_a_delay_refuses_to_invent_a_reference_frequency(tmp_path):
+    """The parameters could be filtered; the gains cannot be rebuilt from
+    them without knowing what the solver referenced the delay to."""
+    from gainfactory import make_quartical_store
+
+    path = make_quartical_store(
+        tmp_path / "delay-smooth.qc",
+        term="K",
+        gain_type="delay_and_offset",
+        param_names=("phase_offset_XX", "delay_XX", "phase_offset_YY", "delay_YY"),
+        ntime=9,
+    )
+    with pytest.raises(ValueError, match="reference frequency"):
+        gains.smooth(path, term="K", output=tmp_path / "nope.qc", time_window=3)
 
 
 def test_blocks_from_another_store_are_refused(tmp_path):
