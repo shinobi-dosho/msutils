@@ -12,7 +12,7 @@ specific to `msutils` and wins where the two disagree.
 
 ## What this is
 
-`msutils` is a Python library and CLI of **everyday Measurement Set operations** for radio-astronomy pipelines — inspect, subset, average, manage columns and flags. Explicitly *not* calibration or imaging. Public functions are exposed on the package root (`import msutils; msutils.msinfo(ms)`) and mirrored by a click CLI (`msutils` console script → `msutils.cli:cli`).
+`msutils` is a Python library and CLI of **everyday Measurement Set operations** for radio-astronomy pipelines — inspect, subset, average, manage columns and flags — plus, since `gainutils`, the same kind of everyday operations on the *other* thing a pipeline produces: **calibration gain tables**. It does not *solve* for calibration and does not image; it manipulates what the solvers write. Public functions are exposed on the package root (`import msutils; msutils.msinfo(ms)`) and mirrored by a click CLI (`msutils` console script → `msutils.cli:cli`).
 
 The headline entry point is **`msinfo`**, which returns a typed `MSInfo`. The old `summary()` is a deprecated adapter over it (`FutureWarning`); do not build anything new on `summary`.
 
@@ -47,7 +47,88 @@ src/msutils/
   _tables.py       open_table / query context managers
   _compat.py       the deprecated summary()
   cli.py           click CLI
+  gains/           gainutils: operations on calibration solutions
+    _model.py        GainTable / GainBlock          <- the core abstraction
+    _casa.py         CASA caltable reader + writer
+    _quartical.py    QuartiCal zarr store reader + writer (`gains` extra)
+    _io.py           format detection, read_gains / write_gains
+    _stats.py        the shared flag-aware reduction (median / mean)
+    fluxscale.py     flux-density bootstrap
+    normalise.py     divide a scale out, leaving shape
+    smooth.py        filter in time/frequency, complex then renormalised
+    cli.py           click CLI (`gainutils` console script)
 ```
+
+### gainutils
+
+A second console script rather than a subcommand group, because these act on
+calibration solutions rather than on Measurement Sets. The design rule is the
+same one `MSInfo` follows: **one model, many formats**.
+
+- **`GainBlock` is dense over `(time, freq, antenna, correlation)`**, one per
+  (field, spw, direction). That is QuartiCal's own axis order, so its arrays
+  need no transpose; a CASA caltable's rows are folded into it on read and
+  unfolded on write via the `rows` map each block keeps.
+- **Operations are `GainTable -> GainTable`** (`GainTable.map`), and never
+  touch IO or a format. `fluxscale`, `normalise` and `smooth` are each
+  arithmetic plus a report and nothing else.
+- **A phase is never filtered as a number.** It is defined modulo 2*pi, so a
+  running mean spikes at every wrap; `smooth` filters the complex gain for
+  direction and the amplitude separately for magnitude, because the complex
+  filter alone shrinks the amplitude wherever the phase rotates. Anything
+  new that averages solutions inherits both halves of that.
+- **A window may be physical.** `smooth` takes `"120s"` / `"8MHz"` as well
+  as a sample count, converts against the block's own axes, and records what
+  it resolved to -- the same reasoning that makes a physical solution
+  interval survive being replayed on differently-averaged data.
+- **Anything that reduces goes through `_stats.amplitude_statistic`.** Both
+  operations ask "what is this antenna's amplitude", so the flag handling,
+  the outlier rejection and the median/mean choice are written once. An
+  operation that reduces differently is a sign the shared function needs an
+  argument, not a copy.
+- **Reductions start from `GainBlock.masked()`.** A median or mean over the
+  raw array folds in flagged solutions and produces a plausible wrong number
+  rather than an error. A (time, antenna) slot the source never had reads
+  back *flagged*, not zero, for the same reason.
+- **Antennas are matched by name, never by position.** Two tables can order
+  antennas differently, and a positional match between them is a silent
+  error. Correlations fall back to positional matching when a format records
+  no labels (a caltable has no `CORR_TYPE`), and the result records which was
+  used.
+- **A block is a field's whole solution, never a storage chunk.** QuartiCal
+  splits one field across datasets by time (normally per scan), so those are
+  concatenated on read and split back on write via `GainBlock.chunks`. Read
+  them as they sit on disk and a two-hour smoothing window silently becomes
+  "whatever one scan held".
+- **A parameterised term's `params` are the authoritative array**, not its
+  gains: QuartiCal rebuilds the gains from them on load
+  (`interpolate.py`'s `data_field = "params" if parameterized else
+  "gains"`), so both are carried and both are written, always together.
+  `amplitude` and `phase` are parameterised despite sounding elementary.
+- **What an operation may do with a parameterisation is read off the
+  parameter *names*** (`_params.py`), not a table of type names, so a new
+  term type classifies itself. Three answers, and the distinction matters:
+  a scaling maps onto amplitude parameters exactly; it is **meaningless**
+  on phase-like ones, which describe a gain of unit modulus (verified on
+  real stores: |g| = 1 to machine precision); and smoothing works on any of
+  them but can only rebuild the gains for the unambiguous cases, since a
+  delay's reconstruction needs the solver's reference frequency and a wrong
+  one is invisible in the array.
+- **Nothing is written in place.** Every operation takes an output path and
+  refuses an existing one: a half-rewritten caltable is unrecoverable, and a
+  pipeline that caches on declared outputs cannot see an in-place edit.
+- **A measurement is a value, not a log line.** `fluxscale` returns a
+  dataclass with a `to_dict()`/`save()`; CASA's own task writes its result to
+  a logger that pipelines routinely discard, which is how a flux scale ends
+  up recorded nowhere.
+
+Where a statistic is a real choice, it is a knob with the trade documented:
+`statistic` is `median` (robust) or `mean` (reproduces CASA to 0.1%), and on
+real MeerKAT gains the two differ by 0.5% — more than either one's error
+bar. `normalise`'s `scope` is the same kind of choice with more at stake:
+`antenna` (CASA's `solnorm`) does **not** preserve relative antenna
+amplitudes and `block` does, and picking the wrong one moves a flux scale
+into a term the caller did not expect.
 
 ### Non-negotiable patterns
 

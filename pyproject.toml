@@ -35,6 +35,7 @@ dependencies = [
 
 [project.scripts]
 msutils = "msutils.cli:cli"
+gainutils = "msutils.gains.cli:cli"
 
 [project.optional-dependencies]
 # PNG summary plots for flagstats.
@@ -44,6 +45,14 @@ plots = [
 # msutils.average: time/channel averaging via codex-africanus.
 average = [
     "codex-africanus>=0.4",
+]
+# msutils.gains: reading QuartiCal gain stores. Exactly what `msv4` needs
+# (plain xarray + zarr) and named separately because the reason differs -- a
+# gain store is not a processing set, and a caller wanting one should not have
+# to know the other exists. CASA caltables need nothing beyond the base
+# install, so a bootstrap between two of them works without this extra.
+gains = [
+    "msutils[msv4]",
 ]
 # Reading MSv4 processing sets. Plain xarray+zarr is enough -- xradio is
 # only needed to *write* one (the `convert` extra below).
@@ -68,7 +77,7 @@ convert = [
     "ipython",
 ]
 all = [
-    "msutils[plots,average,msv4,xarray-ms,convert]",
+    "msutils[plots,average,gains,msv4,xarray-ms,convert]",
 ]
 
 [dependency-groups]

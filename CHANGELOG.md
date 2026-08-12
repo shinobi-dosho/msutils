@@ -4,6 +4,54 @@
 
 ### Added
 
+- **`gainutils`**, a second console script for operations on calibration gain
+  tables, and `msutils.gains` behind it. One format-neutral model
+  (`GainTable`/`GainBlock`, dense over time/freq/antenna/correlation) that
+  both a CASA caltable and a QuartiCal zarr store fold into, so an operation
+  is written once and a format is a reader plus a writer. QuartiCal stores
+  are read and written (a write copies the source store and replaces the
+  term's arrays). A **parameterised** term -- which is most of them,
+  `amplitude` and `phase` included -- carries its `params` through the model
+  and back out, because QuartiCal rebuilds the gains from those on load;
+  what an operation may do with a given parameterisation is decided from the
+  parameters' own names, so a scaling works on amplitudes, is refused as
+  meaningless on phase-like terms (unit modulus: no amplitude to scale), and
+  smoothing filters the parameters but declines to rebuild a delay's gains,
+  which would need the solver's reference frequency. Reading or
+  writing a QuartiCal store needs the new `gains` extra (which is `msv4`'s xarray + zarr, named
+  separately because the reason differs); CASA caltables need nothing beyond
+  the base install.
+- `gainutils smooth` / `msutils.gains.smooth()`: filter solutions in time
+  and/or frequency. The **complex** gain is filtered for its phase and the
+  amplitude separately for its magnitude, then recombined -- filtering phase
+  as a number spikes at every +/-pi wrap, and filtering the complex gain
+  alone shrinks the amplitude wherever the phase rotates, silently rescaling
+  whatever the solutions are applied to. Windows may be physical
+  (`--time-window 120s`, `--freq-window 8MHz`) or a sample count, with what
+  they resolved to recorded per block. `--kernel boxcar|gaussian`,
+  `--fill` to bridge flagged gaps (the general form of CASA's `fillgaps`),
+  and real-parameter tables (a CASA `K`) are filtered as numbers rather than
+  phasors.
+- `gainutils normalise` / `msutils.gains.normalise()`: divide an amplitude
+  scale out of a set of gains, leaving their shape. `--statistic
+  median|mean` (the median resists a bad scan; the mean is CASA's
+  `solnorm`), `--axis all|time|freq` (`freq` is bandpass normalisation),
+  and `--scope antenna|correlation|block` -- where only `block` preserves
+  the relative amplitudes *between* antennas, `antenna` matching CASA and
+  moving them into whatever term is applied alongside. Phases are never
+  touched, delay-like terms are refused, and the factors taken out are
+  recorded in the JSON report, since that scale has left the table.
+- `gainutils fluxscale` / `msutils.gains.fluxscale()`: bootstrap a
+  calibrator's flux density from a reference calibrator's gains, and rescale
+  its solutions to be instrumental. Unlike CASA's task it takes the two
+  calibrators as **separate tables** (no appending into a copy of the
+  reference's), writes the transfer field **alone** to its output (CASA
+  carries the reference through, which blends two calibrators' gains if the
+  table is applied without naming a field), matches antennas **by name**, and
+  returns the measurement as a value with a JSON report rather than a log
+  line. Validated against CASA on real MeerKAT data: 5.943 Jy with
+  `--statistic mean` against CASA's 5.938 Jy for the same table.
+
 - `subset()` averages: `time_bin` / `chan_bin` (`--time-bin` / `--chan-bin`),
   with `datacolumn` to pick the column to bin. Selecting and averaging is now
   one pass instead of a subset followed by an `average`. The work is handed to
