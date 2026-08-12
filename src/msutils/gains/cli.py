@@ -12,6 +12,7 @@ import click
 
 from .fluxscale import fluxscale as _fluxscale
 from .normalise import normalise as _normalise
+from .smooth import smooth as _smooth
 
 try:
     from importlib.metadata import version as _version
@@ -173,6 +174,71 @@ def normalise(gains, output, statistic, axis, scope, json_out, term):
         statistic=statistic,
         axis=axis,
         scope=scope,
+        term=term,
+        json_out=json_out,
+    )
+    click.echo(result.render())
+
+
+@cli.command()
+@click.argument("gains")
+@click.option(
+    "-o",
+    "--output",
+    default=None,
+    type=click.Path(),
+    help="Write the smoothed gains here. Never written in place; must not exist.",
+)
+@click.option(
+    "--time-window",
+    default=None,
+    help="Window along time: a sample count, or a physical interval ('120s', '5min'). "
+    "The physical form means the same thing on differently-averaged data.",
+)
+@click.option(
+    "--freq-window",
+    default=None,
+    help="Window along frequency: a sample count, or a physical width ('8MHz').",
+)
+@click.option(
+    "--kernel",
+    type=click.Choice(["boxcar", "gaussian"]),
+    default="boxcar",
+    show_default=True,
+    help="Kernel shape. A gaussian's window is read as its FWHM.",
+)
+@click.option(
+    "--fill/--no-fill",
+    default=False,
+    show_default=True,
+    help="Unflag solutions whose window contained real data (the general form of CASA's "
+    "fillgaps). Off means a flagged solution stays flagged however many neighbours it has.",
+)
+@click.option(
+    "--json",
+    "json_out",
+    default=None,
+    type=click.Path(),
+    help="Write the report to this JSON file, including what each physical window "
+    "resolved to in samples.",
+)
+@click.option("--term", default=None, help="Term to read from a QuartiCal store holding several.")
+def smooth(gains, output, time_window, freq_window, kernel, fill, json_out, term):
+    """Smooth GAINS in time and/or frequency.
+
+    The complex gain is filtered for its phase and the amplitude separately
+    for its magnitude, then recombined. Filtering phase directly would spike
+    at every +/-pi wrap; filtering the complex gain alone would shrink the
+    amplitude wherever the phase rotates, quietly rescaling everything the
+    solutions are applied to.
+    """
+    result = _smooth(
+        gains,
+        output=output,
+        time_window=time_window,
+        freq_window=freq_window,
+        kernel=kernel,
+        fill=fill,
         term=term,
         json_out=json_out,
     )

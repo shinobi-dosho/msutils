@@ -45,6 +45,7 @@ def make_caltable(
     jitter=0.02,
     seed=0,
     viscal="G Jones",
+    param_col="CPARAM",
 ):
     """Write a two-field CASA caltable at ``path`` and return ``(path, gains)``.
 
@@ -60,6 +61,10 @@ def make_caltable(
             medians have something to average over and the error bar is not
             identically zero.
         seed: RNG seed; the gains are deterministic given one.
+        param_col: ``"CPARAM"`` for a complex table or ``"FPARAM"`` for a
+            real-parameter one -- a `K` (delay) table is the latter, and it
+            takes a different path through every operation that has to know
+            whether it is holding a phasor.
 
     Returns:
         ``(path, instrumental)`` where `instrumental` is the
@@ -80,7 +85,9 @@ def make_caltable(
         makescacoldesc("SPECTRAL_WINDOW_ID", 0),
         makescacoldesc("ANTENNA1", 0),
         makescacoldesc("ANTENNA2", -1),
-        makearrcoldesc("CPARAM", 0 + 0j, shape=[nchan, ncorr], valuetype="complex"),
+        makearrcoldesc(param_col, 0 + 0j, shape=[nchan, ncorr], valuetype="complex")
+        if param_col == "CPARAM"
+        else makearrcoldesc(param_col, 0.0, shape=[nchan, ncorr], valuetype="float"),
         makearrcoldesc("FLAG", False, shape=[nchan, ncorr], valuetype="boolean"),
         makearrcoldesc("SNR", 0.0, shape=[nchan, ncorr], valuetype="float"),
     ]
@@ -111,11 +118,11 @@ def make_caltable(
     tab.putcol("SPECTRAL_WINDOW_ID", np.array(spw_ids))
     tab.putcol("ANTENNA1", np.array(ant_ids))
     tab.putcol("ANTENNA2", np.full(rows, -1))
-    tab.putcol("CPARAM", params)
+    tab.putcol(param_col, params if param_col == "CPARAM" else params.real)
     tab.putcol("FLAG", np.zeros((rows, nchan, ncorr), dtype=bool))
     tab.putcol("SNR", np.full((rows, nchan, ncorr), 100.0))
     tab.putkeyword("VisCal", viscal)
-    tab.putkeyword("ParType", "Complex")
+    tab.putkeyword("ParType", "Complex" if param_col == "CPARAM" else "Float")
 
     ant_path, ant_tab = _subtable(path, "ANTENNA", [makescacoldesc("NAME", "")], nant)
     ant_tab.putcol("NAME", np.array([f"m{i:03d}" for i in range(nant)]))
@@ -172,8 +179,9 @@ def corrupt_solution(path, *, field_id, antenna, factor):
     with table(path, readonly=False, ack=False) as tab:
         fields = tab.getcol("FIELD_ID")
         ants = tab.getcol("ANTENNA1")
-        params = tab.getcol("CPARAM")
+        column = "CPARAM" if "CPARAM" in tab.colnames() else "FPARAM"
+        params = tab.getcol(column)
         rows = np.flatnonzero((fields == field_id) & (ants == antenna))
         params[rows] *= factor
-        tab.putcol("CPARAM", params)
+        tab.putcol(column, params)
     return rows

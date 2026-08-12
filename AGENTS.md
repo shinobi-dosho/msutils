@@ -55,6 +55,7 @@ src/msutils/
     _stats.py        the shared flag-aware reduction (median / mean)
     fluxscale.py     flux-density bootstrap
     normalise.py     divide a scale out, leaving shape
+    smooth.py        filter in time/frequency, complex then renormalised
     cli.py           click CLI (`gainutils` console script)
 ```
 
@@ -69,8 +70,17 @@ same one `MSInfo` follows: **one model, many formats**.
   need no transpose; a CASA caltable's rows are folded into it on read and
   unfolded on write via the `rows` map each block keeps.
 - **Operations are `GainTable -> GainTable`** (`GainTable.map`), and never
-  touch IO or a format. `fluxscale` and `normalise` are arithmetic plus a
-  report and nothing else; `smooth` should be too.
+  touch IO or a format. `fluxscale`, `normalise` and `smooth` are each
+  arithmetic plus a report and nothing else.
+- **A phase is never filtered as a number.** It is defined modulo 2*pi, so a
+  running mean spikes at every wrap; `smooth` filters the complex gain for
+  direction and the amplitude separately for magnitude, because the complex
+  filter alone shrinks the amplitude wherever the phase rotates. Anything
+  new that averages solutions inherits both halves of that.
+- **A window may be physical.** `smooth` takes `"120s"` / `"8MHz"` as well
+  as a sample count, converts against the block's own axes, and records what
+  it resolved to -- the same reasoning that makes a physical solution
+  interval survive being replayed on differently-averaged data.
 - **Anything that reduces goes through `_stats.amplitude_statistic`.** Both
   operations ask "what is this antenna's amplitude", so the flag handling,
   the outlier rejection and the median/mean choice are written once. An

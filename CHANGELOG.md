@@ -12,6 +12,17 @@
   store needs the new `gains` extra (which is `msv4`'s xarray + zarr, named
   separately because the reason differs); CASA caltables need nothing beyond
   the base install.
+- `gainutils smooth` / `msutils.gains.smooth()`: filter solutions in time
+  and/or frequency. The **complex** gain is filtered for its phase and the
+  amplitude separately for its magnitude, then recombined -- filtering phase
+  as a number spikes at every +/-pi wrap, and filtering the complex gain
+  alone shrinks the amplitude wherever the phase rotates, silently rescaling
+  whatever the solutions are applied to. Windows may be physical
+  (`--time-window 120s`, `--freq-window 8MHz`) or a sample count, with what
+  they resolved to recorded per block. `--kernel boxcar|gaussian`,
+  `--fill` to bridge flagged gaps (the general form of CASA's `fillgaps`),
+  and real-parameter tables (a CASA `K`) are filtered as numbers rather than
+  phasors.
 - `gainutils normalise` / `msutils.gains.normalise()`: divide an amplitude
   scale out of a set of gains, leaving their shape. `--statistic
   median|mean` (the median resists a bad scan; the mean is CASA's

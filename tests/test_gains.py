@@ -386,7 +386,7 @@ def test_flagged_solutions_do_not_enter_the_factor(tmp_path):
 def test_a_delay_table_is_refused(tmp_path):
     """Normalising a delay is arithmetic without a meaning -- it is a slope in
     frequency, not an amplitude."""
-    path, _ = make_caltable(tmp_path / "delay.K0", viscal="K Jones")
+    path, _ = make_caltable(tmp_path / "delay-norm.K0", viscal="K Jones", param_col="FPARAM")
     with pytest.raises(ValueError, match=r"which is not an"):
         gains.normalise(path)
 
@@ -433,3 +433,188 @@ def test_unknown_axis_and_scope_are_refused(caltable):
         gains.normalise(path, axis="channel")
     with pytest.raises(ValueError, match="unknown scope"):
         gains.normalise(path, scope="spw")
+
+
+# ---- smooth -----------------------------------------------------------
+
+
+def _write_gains(path, values, *, field_id=1):
+    """Overwrite one field's CPARAM with `values`, shaped (time, ant, corr)."""
+    from casacore.tables import table as casa_table
+
+    with casa_table(path, readonly=False, ack=False) as tab:
+        fields, ants, times = tab.getcol("FIELD_ID"), tab.getcol("ANTENNA1"), tab.getcol("TIME")
+        column = "CPARAM" if "CPARAM" in tab.colnames() else "FPARAM"
+        params = tab.getcol(column)
+        order = sorted(set(times[fields == field_id].tolist()))
+        for row in np.flatnonzero(fields == field_id):
+            ti = order.index(times[row])
+            params[row, 0, :] = values[ti, ants[row], :].real if column == "FPARAM" else values[ti, ants[row], :]
+        tab.putcol(column, params)
+
+
+def test_smoothing_averages_noise_down(tmp_path):
+    path, _ = make_caltable(tmp_path / "noisy.G0", nant=2, ntime=21, jitter=0.4, flux=1.0)
+    out = tmp_path / "smoothed.G0"
+    gains.smooth(path, output=out, time_window=5)
+
+    before = gains.read_gains(path).select(field=1).blocks[0]
+    after = gains.read_gains(out).select(field=1).blocks[0]
+    assert np.abs(after.gains).std() < np.abs(before.gains).std()
+
+
+def test_a_phase_wrap_does_not_spike(tmp_path):
+    """The reason this filters the complex gain: a running mean of the phase
+    itself averages values adjacent on the circle and far apart as numbers,
+    putting a spike at every +/-pi crossing."""
+    path, _ = make_caltable(tmp_path / "wrap.G0", nant=1, ntime=41, jitter=0.0, flux=1.0)
+    # a phase ramp of 0.4 rad per solution: it crosses +/-pi twice
+    phase = 0.4 * np.arange(41)
+    values = np.exp(1j * phase)[:, None, None] * np.ones((41, 1, 2))
+    _write_gains(path, values)
+
+    out = tmp_path / "wrap-smoothed.G0"
+    gains.smooth(path, output=out, time_window=5)
+    after = gains.read_gains(out).select(field=1).blocks[0]
+
+    # the smoothed phase still steps by 0.4 rad everywhere except the wraps,
+    # which is what "no spike" means once the values are re-wrapped
+    step = np.diff(np.angle(after.gains[:, 0, 0, 0]))
+    step = (step + np.pi) % (2 * np.pi) - np.pi
+    assert np.allclose(step[2:-2], 0.4, atol=1e-6)
+
+    # and for contrast: smoothing the phase as a number would have produced
+    # excursions of order pi at the wraps
+    naive = np.convolve(np.angle(np.exp(1j * phase)), np.ones(5) / 5, mode="same")
+    naive_step = np.diff(naive)
+    assert np.abs(naive_step - 0.4).max() > 0.4  # off by more than the ramp itself
+
+
+def test_renormalising_keeps_the_amplitude_a_vector_average_would_shrink(tmp_path):
+    """Vector averaging a rotating gain shortens it -- by ~13% for a 0.8
+    rad/sample ramp over 5 samples. Uncorrected, that would rescale the flux
+    of everything the solutions are applied to."""
+    path, _ = make_caltable(tmp_path / "rotate.G0", nant=1, ntime=31, jitter=0.0, flux=1.0)
+    amplitude = 2.0
+    values = amplitude * np.exp(1j * 0.8 * np.arange(31))[:, None, None] * np.ones((31, 1, 2))
+    _write_gains(path, values)
+
+    out = tmp_path / "rotate-smoothed.G0"
+    gains.smooth(path, output=out, time_window=5)
+    after = gains.read_gains(out).select(field=1).blocks[0]
+    assert np.allclose(np.abs(after.gains[2:-2]), amplitude, rtol=1e-6)
+
+    # what the same filter does without the renormalisation
+    shrunk = np.abs(np.convolve(values[:, 0, 0], np.ones(5) / 5, mode="same"))
+    assert shrunk[5] < 0.9 * amplitude
+
+
+def test_physical_windows_convert_against_the_axis(tmp_path):
+    """A window in seconds means the same thing on differently-averaged data;
+    the report says what it resolved to here."""
+    path, _ = make_caltable(tmp_path / "physical.G0", ntime=9)  # 60 s apart
+    result = gains.smooth(path, time_window="180s")
+    assert result.blocks[0].time_samples == 3
+
+    with pytest.raises(ValueError, match="unknown time unit"):
+        gains.smooth(path, time_window="180parsec")
+    with pytest.raises(ValueError, match="cannot read time window"):
+        gains.smooth(path, time_window="soon")
+
+
+def test_flagged_solutions_neither_contribute_nor_are_revived(tmp_path):
+    path, _ = make_caltable(tmp_path / "gappy.G0", nant=2, ntime=9, jitter=0.0, flux=1.0)
+    corrupt_solution(path, field_id=1, antenna=0, factor=100.0)
+    flag_solution(path, field_id=1, antenna=0)
+    out = tmp_path / "gappy-smoothed.G0"
+    gains.smooth(path, output=out, time_window=5)
+
+    after = gains.read_gains(out).select(field=1).blocks[0]
+    # antenna 1 is untouched by antenna 0's absurd values (they are flagged,
+    # and smoothing is per antenna anyway), and antenna 0 stays flagged
+    assert after.flags[:, :, 0, :].all()
+    assert not after.flags[:, :, 1, :].any()
+
+
+def test_fill_revives_solutions_a_window_could_reach(tmp_path):
+    path, _ = make_caltable(tmp_path / "fill.G0", nant=2, ntime=9, jitter=0.0, flux=1.0)
+    flag_solution(path, field_id=1, antenna=0)
+
+    kept = gains.smooth(path, output=tmp_path / "kept.G0", time_window=5)
+    filled = gains.smooth(path, output=tmp_path / "filled.G0", time_window=5, fill=True)
+    assert kept.blocks[1].filled == 0
+    # an antenna flagged at every time has no neighbours of its own to borrow
+    # from, so even fill cannot revive it -- smoothing does not cross antennas
+    assert filled.blocks[1].filled == 0
+
+    # but a hole in time is bridged
+    path2, _ = make_caltable(tmp_path / "hole.G0", nant=2, ntime=9, jitter=0.0, flux=1.0)
+    from casacore.tables import table as casa_table
+
+    with casa_table(path2, readonly=False, ack=False) as tab:
+        fields, times = tab.getcol("FIELD_ID"), tab.getcol("TIME")
+        flags = tab.getcol("FLAG")
+        middle = sorted(set(times[fields == 1].tolist()))[4]
+        flags[np.flatnonzero((fields == 1) & (times == middle))] = True
+        tab.putcol("FLAG", flags)
+
+    bridged = gains.smooth(path2, output=tmp_path / "bridged.G0", time_window=5, fill=True)
+    assert bridged.blocks[1].filled == 4  # 2 antennas x 2 correlations
+
+
+def test_a_delay_table_is_smoothed_as_a_parameter(tmp_path):
+    """A delay is a number, not a phasor: the complex/renormalise path would
+    treat its magnitude as a gain amplitude, which it is not."""
+    path, _ = make_caltable(
+        tmp_path / "delay.K0", nant=1, ntime=9, jitter=0.0, viscal="K Jones", param_col="FPARAM"
+    )
+    values = np.zeros((9, 1, 2), dtype=complex)
+    values[:, 0, :] = np.array([1, 2, 3, 4, 100, 6, 7, 8, 9])[:, None]  # ns, with a spike
+    _write_gains(path, values)
+
+    out = tmp_path / "delay-smoothed.K0"
+    result = gains.smooth(path, output=out, time_window=3)
+    assert result.param_type == "float"
+    after = gains.read_gains(out).select(field=1).blocks[0]
+    smoothed = after.gains[:, 0, 0, 0].real
+    # the spike is averaged with its neighbours as a NUMBER: (4 + 100 + 6)/3
+    assert smoothed[4] == pytest.approx((4 + 100 + 6) / 3)
+    # and nothing acquired a phase on the way through
+    assert np.allclose(after.gains.imag, 0.0)
+
+
+def test_a_gaussian_kernel_weights_the_centre_more(tmp_path):
+    path, _ = make_caltable(tmp_path / "kernel.G0", nant=1, ntime=21, jitter=0.0, flux=1.0)
+    values = np.ones((21, 1, 2), dtype=complex)
+    values[10] = 11.0  # one spike
+    _write_gains(path, values)
+
+    box = gains.smooth(path, output=tmp_path / "box.G0", time_window=5, kernel="boxcar")
+    gauss = gains.smooth(path, output=tmp_path / "gauss.G0", time_window=5, kernel="gaussian")
+    assert box.kernel == "boxcar" and gauss.kernel == "gaussian"
+    box_peak = np.abs(gains.read_gains(tmp_path / "box.G0").select(field=1).blocks[0].gains[10, 0, 0, 0])
+    gauss_peak = np.abs(gains.read_gains(tmp_path / "gauss.G0").select(field=1).blocks[0].gains[10, 0, 0, 0])
+    assert gauss_peak > box_peak  # the gaussian keeps more of the centre sample
+
+
+def test_smoothing_with_no_window_is_refused(caltable):
+    path, _ = caltable
+    with pytest.raises(ValueError, match="nothing to smooth"):
+        gains.smooth(path)
+    with pytest.raises(ValueError, match="unknown kernel"):
+        gains.smooth(path, time_window=3, kernel="sinc")
+
+
+def test_cli_smooth_writes_gains_and_a_report(caltable, tmp_path):
+    path, _ = caltable
+    out, report = tmp_path / "cli-smooth.G0", tmp_path / "cli-smooth.json"
+    result = CliRunner().invoke(
+        cli,
+        ["smooth", str(path), "-o", str(out), "--time-window", "180s", "--json", str(report)],
+    )
+    assert result.exit_code == 0, result.output
+    assert "# Smoothed field=" in result.output
+    written = json.loads(report.read_text())
+    assert written["time_window"] == "180s"
+    assert written["blocks"][0]["time_samples"] == 3
+    assert gains.read_gains(out)
