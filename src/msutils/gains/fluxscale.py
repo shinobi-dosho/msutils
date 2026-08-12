@@ -57,8 +57,9 @@ from msutils._log import create_logger
 
 from ._io import read_gains, write_gains
 from ._model import GainBlock, GainTable
+from ._stats import amplitude_statistic
 
-__all__ = ["STATISTICS", "FluxDensity", "FluxscaleResult", "fluxscale"]
+__all__ = ["FluxDensity", "FluxscaleResult", "fluxscale"]
 
 LOGGER = create_logger(__name__)
 
@@ -163,41 +164,6 @@ class FluxscaleResult:
         return str(path)
 
 
-#: How a block's gain amplitudes are collapsed onto one value per (antenna,
-#: correlation). The choice is worth a knob rather than a constant: measured
-#: against a real MeerKAT bootstrap (10 antennas, 3 reference scans, 16
-#: transfer scans) the two differ by **0.5%** -- 5.969 Jy by median against
-#: 5.943 Jy by mean, where CASA's own task reported 5.938 Jy. The median is
-#: the default because one bad scan should not move a flux scale; `mean` is
-#: the one to use when reproducing CASA, whose behaviour it matches to
-#: within 0.1% despite its documentation saying "median gain norm".
-STATISTICS = ("median", "mean")
-
-
-def _average_amplitude(block: GainBlock, threshold: float, statistic: str) -> np.ma.MaskedArray:
-    """|g| collapsed over time and frequency, per (antenna, correlation).
-
-    Time and frequency both: a `G` solve has one channel and many times, a
-    `B` solve the reverse, and the statistic that makes both work is one
-    taken over whatever axes the term actually resolves.
-    """
-    if statistic not in STATISTICS:
-        raise ValueError(f"unknown statistic {statistic!r} (known: {list(STATISTICS)})")
-    amplitude = np.ma.abs(block.masked())
-    if threshold > 0:
-        # CASA's `gainthreshold`: drop solutions deviating from the median by
-        # more than this fraction, so one bad interval cannot drag the average
-        # of a short scan. Always measured from the median, whatever the
-        # statistic -- an outlier test against a mean the outlier is already in
-        # is a weaker test.
-        median = np.ma.median(amplitude, axis=(0, 1))
-        deviation = np.ma.abs(amplitude - median) / np.ma.masked_equal(median, 0)
-        amplitude = np.ma.masked_where(deviation > threshold, amplitude)
-    if statistic == "mean":
-        return amplitude.mean(axis=(0, 1))
-    return np.ma.median(amplitude, axis=(0, 1))
-
-
 def _align(reference: GainBlock, transfer: GainBlock) -> tuple[list[int], list[int], list[int], list[int], str]:
     """Index maps putting the two blocks' antennas and correlations in step.
 
@@ -243,8 +209,12 @@ def _measure(
 ) -> tuple[FluxDensity, str, tuple[str, ...]]:
     """One spectral window's flux density, from the two blocks' gains."""
     ref_ants, trn_ants, ref_corrs, trn_corrs, matching = _align(reference, transfer)
-    ref_median = _average_amplitude(reference, threshold, statistic)[np.ix_(ref_ants, ref_corrs)]
-    trn_median = _average_amplitude(transfer, threshold, statistic)[np.ix_(trn_ants, trn_corrs)]
+    ref_median = amplitude_statistic(reference, statistic=statistic, threshold=threshold)[
+        np.ix_(ref_ants, ref_corrs)
+    ]
+    trn_median = amplitude_statistic(transfer, statistic=statistic, threshold=threshold)[
+        np.ix_(trn_ants, trn_corrs)
+    ]
 
     ratio = trn_median / np.ma.masked_equal(ref_median, 0)
     samples = np.ma.filled(ratio.astype(float) ** 2 * reference_flux, np.nan)
@@ -312,9 +282,9 @@ def fluxscale(
             more than this fraction before averaging. 0 disables.
         statistic: How each antenna's amplitudes are collapsed over time and
             frequency -- ``"median"`` (default, robust) or ``"mean"`` (what
-            reproduces CASA). See `STATISTICS`: on real data the two differ
-            by about half a percent, which is larger than either one's
-            formal error, so it is a choice worth making deliberately.
+            reproduces CASA). See `msutils.gains._stats`: on real data the
+            two differ by about half a percent, which is larger than either
+            one's formal error, so it is a choice worth making deliberately.
         term: Which term to read, for QuartiCal stores holding several.
         json_out: Write the report to this JSON file.
 

@@ -11,10 +11,10 @@ thing a calibration pipeline produces. The design is deliberately narrow:
 * operations as functions of a `GainTable`, so a new one is arithmetic and
   a report -- not IO, not a CLI, not a format.
 
-:func:`fluxscale` is the first. `smooth` and `normalise` are the obvious
-next two, and the shape they should take is already visible here:
-`GainTable.map` over blocks, `GainBlock.masked` for anything that reduces,
-`with_gains` to produce the result, and never a write in place.
+:func:`fluxscale` and :func:`normalise` are the first two, and both are
+built the same way: `GainTable.map` over blocks, `msutils.gains._stats` for
+anything that reduces, `with_gains` to produce the result, a dataclass
+report, and never a write in place. `smooth` is the obvious next one.
 
 Usage::
 
@@ -33,16 +33,24 @@ The CLI mirrors it (``gainutils fluxscale ...``).
 from ._io import detect_format, read_gains, write_gains
 from ._model import AXES, GainBlock, GainTable
 from ._quartical import quartical_terms
+from ._stats import STATISTICS
 from .fluxscale import FluxDensity, FluxscaleResult, fluxscale
+from .normalise import AXIS_CHOICES, SCOPES, NormalisedBlock, NormaliseResult, normalise
 
 __all__ = [
     "AXES",
+    "AXIS_CHOICES",
+    "SCOPES",
+    "STATISTICS",
     "FluxDensity",
     "FluxscaleResult",
     "GainBlock",
     "GainTable",
+    "NormaliseResult",
+    "NormalisedBlock",
     "detect_format",
     "fluxscale",
+    "normalise",
     "quartical_terms",
     "read_gains",
     "write_gains",

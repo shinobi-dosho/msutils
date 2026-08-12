@@ -52,7 +52,9 @@ src/msutils/
     _casa.py         CASA caltable reader + writer
     _quartical.py    QuartiCal zarr store reader (needs the `gains` extra)
     _io.py           format detection, read_gains / write_gains
+    _stats.py        the shared flag-aware reduction (median / mean)
     fluxscale.py     flux-density bootstrap
+    normalise.py     divide a scale out, leaving shape
     cli.py           click CLI (`gainutils` console script)
 ```
 
@@ -67,8 +69,13 @@ same one `MSInfo` follows: **one model, many formats**.
   need no transpose; a CASA caltable's rows are folded into it on read and
   unfolded on write via the `rows` map each block keeps.
 - **Operations are `GainTable -> GainTable`** (`GainTable.map`), and never
-  touch IO or a format. `fluxscale` is the first; `smooth` and `normalise`
-  should be arithmetic plus a report and nothing else.
+  touch IO or a format. `fluxscale` and `normalise` are arithmetic plus a
+  report and nothing else; `smooth` should be too.
+- **Anything that reduces goes through `_stats.amplitude_statistic`.** Both
+  operations ask "what is this antenna's amplitude", so the flag handling,
+  the outlier rejection and the median/mean choice are written once. An
+  operation that reduces differently is a sign the shared function needs an
+  argument, not a copy.
 - **Reductions start from `GainBlock.masked()`.** A median or mean over the
   raw array folds in flagged solutions and produces a plausible wrong number
   rather than an error. A (time, antenna) slot the source never had reads
@@ -87,9 +94,12 @@ same one `MSInfo` follows: **one model, many formats**.
   up recorded nowhere.
 
 Where a statistic is a real choice, it is a knob with the trade documented:
-`fluxscale`'s `statistic` is `median` (robust) or `mean` (reproduces CASA to
-0.1%), and on real MeerKAT gains the two differ by 0.5% — more than either
-one's error bar.
+`statistic` is `median` (robust) or `mean` (reproduces CASA to 0.1%), and on
+real MeerKAT gains the two differ by 0.5% — more than either one's error
+bar. `normalise`'s `scope` is the same kind of choice with more at stake:
+`antenna` (CASA's `solnorm`) does **not** preserve relative antenna
+amplitudes and `block` does, and picking the wrong one moves a flux scale
+into a term the caller did not expect.
 
 ### Non-negotiable patterns
 

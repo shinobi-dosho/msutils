@@ -266,3 +266,170 @@ def test_the_statistic_is_a_recorded_choice(caltable):
         gains.fluxscale(
             path, transfer_field="GAINCAL", reference_field="REFCAL", statistic="mode"
         )
+
+
+# ---- normalise --------------------------------------------------------
+
+
+def _amplitudes(path, field=1):
+    """Per (antenna, correlation) mean amplitude of one field's block."""
+    block = gains.read_gains(path).select(field=field).blocks[0]
+    return np.ma.abs(block.masked()).mean(axis=(0, 1))
+
+
+def test_normalise_leaves_the_chosen_statistic_at_unity(caltable, tmp_path):
+    path, _ = caltable
+    out = tmp_path / "normalised.G0"
+    result = gains.normalise(path, output=out, statistic="mean")
+
+    block = gains.read_gains(out).select(field=1).blocks[0]
+    amplitude = np.ma.abs(block.masked()).mean(axis=(0, 1))
+    assert np.allclose(amplitude, 1.0)
+    assert result.statistic == "mean"
+    assert result.output_path == str(out)
+
+
+def test_median_and_mean_normalisation_differ_on_skewed_gains(tmp_path):
+    """The two answer different questions, and a skewed set is where that
+    shows: one bad interval drags a mean and leaves a median alone."""
+    path, _ = make_caltable(tmp_path / "skew.G0", ntime=5, flux=1.0)
+    from casacore.tables import table as casa_table
+
+    with casa_table(path, readonly=False, ack=False) as tab:
+        params = tab.getcol("CPARAM")
+        rows = np.flatnonzero((tab.getcol("FIELD_ID") == 1) & (tab.getcol("ANTENNA1") == 0))
+        params[rows[0]] *= 10.0  # one interval, one antenna
+        tab.putcol("CPARAM", params)
+
+    by_median = gains.normalise(path, output=tmp_path / "med.G0", statistic="median")
+    by_mean = gains.normalise(path, output=tmp_path / "avg.G0", statistic="mean")
+    median_factor = by_median.blocks[1].factors["m000"][0]
+    mean_factor = by_mean.blocks[1].factors["m000"][0]
+    assert mean_factor > median_factor * 1.5
+
+
+def test_scope_block_preserves_relative_antenna_amplitudes(caltable, tmp_path):
+    """The scope choice is a science decision: per-antenna normalisation moves
+    the relative antenna amplitudes into whatever term is applied alongside,
+    and only `block` leaves them where they were."""
+    path, _ = caltable
+    before = _amplitudes(path)
+
+    # `mean` on both, because the assertion below measures the mean: a median
+    # normalisation leaves the mean near 1 rather than at it, and testing one
+    # statistic through the other only measures their difference.
+    per_antenna = gains.normalise(
+        path, output=tmp_path / "per-ant.G0", scope="antenna", statistic="mean"
+    )
+    whole_block = gains.normalise(
+        path, output=tmp_path / "per-block.G0", scope="block", statistic="mean"
+    )
+    assert per_antenna.scope == "antenna" and whole_block.scope == "block"
+
+    flattened = _amplitudes(tmp_path / "per-ant.G0")
+    kept = _amplitudes(tmp_path / "per-block.G0")
+    # per antenna: every antenna ends at 1, so the spread is gone
+    assert np.allclose(flattened, 1.0, atol=1e-6)
+    # per block: the ratios between antennas survive exactly
+    assert np.allclose(kept / kept.mean(), before / before.mean(), rtol=1e-6)
+
+
+def test_scope_correlation_levels_the_polarisations_separately(caltable, tmp_path):
+    path, _ = caltable
+    result = gains.normalise(
+        path, output=tmp_path / "per-corr.G0", scope="correlation", statistic="mean"
+    )
+    after = _amplitudes(tmp_path / "per-corr.G0")
+    # each correlation is levelled on its own...
+    assert np.allclose(after.mean(axis=0), 1.0, rtol=1e-6)
+    # ...while the antennas within one still differ, because they share a
+    # single factor rather than getting one each
+    assert after[:, 0].std() > 0
+    assert result.blocks[1].factors["m000"] == result.blocks[1].factors["m001"]
+    # and the two polarisations were levelled independently
+    assert result.blocks[1].factors["m000"][0] != result.blocks[1].factors["m000"][1]
+
+
+def test_axis_freq_normalises_the_spectrum_and_keeps_the_time_variation(tmp_path):
+    path, _ = make_caltable(tmp_path / "bandpass.B0", nchan=4, ntime=3, viscal="B Jones")
+    out = tmp_path / "normalised.B0"
+    gains.normalise(path, output=out, axis="freq", statistic="mean")
+
+    block = gains.read_gains(out).select(field=1).blocks[0]
+    amplitude = np.ma.abs(block.masked())
+    # every (time, antenna, correlation) spectrum now averages to 1
+    assert np.allclose(amplitude.mean(axis=1), 1.0)
+    # and the solutions still differ from one time to the next
+    assert amplitude.std(axis=0).max() > 0
+
+
+def test_phases_are_untouched(caltable, tmp_path):
+    path, _ = caltable
+    out = tmp_path / "phase-safe.G0"
+    gains.normalise(path, output=out)
+    before = gains.read_gains(path).select(field=1).blocks[0]
+    after = gains.read_gains(out).select(field=1).blocks[0]
+    assert np.allclose(np.angle(before.gains), np.angle(after.gains))
+
+
+def test_flagged_solutions_do_not_enter_the_factor(tmp_path):
+    path, _ = make_caltable(tmp_path / "flagged-norm.G0", flux=1.0)
+    corrupt_solution(path, field_id=1, antenna=0, factor=1000.0)
+    flag_solution(path, field_id=1, antenna=0)
+
+    result = gains.normalise(path, scope="block", statistic="mean")
+    # the corrupted antenna is flagged, so the block factor stays near the
+    # honest amplitudes rather than being dragged by a factor of 1000
+    assert result.blocks[1].factor_summary < 2.0
+
+
+def test_a_delay_table_is_refused(tmp_path):
+    """Normalising a delay is arithmetic without a meaning -- it is a slope in
+    frequency, not an amplitude."""
+    path, _ = make_caltable(tmp_path / "delay.K0", viscal="K Jones")
+    with pytest.raises(ValueError, match=r"which is not an"):
+        gains.normalise(path)
+
+
+def test_the_report_records_the_factors_that_left(caltable, tmp_path):
+    path, _ = caltable
+    report = tmp_path / "norm.json"
+    result = gains.normalise(path, json_out=report, scope="block")
+    written = json.loads(report.read_text())
+    assert written["schema_version"] == 1
+    assert written["scope"] == "block"
+    assert written["statistic"] == "median"
+    # field 1 was solved with sqrt(5) x the reference's gains, so that is what
+    # a block normalisation should have taken out
+    transfer = next(b for b in written["blocks"] if b["field_id"] == 1)
+    reference = next(b for b in written["blocks"] if b["field_id"] == 0)
+    assert transfer["factor_summary"] / reference["factor_summary"] == pytest.approx(np.sqrt(5.0), rel=0.05)
+    assert result.blocks[0].factors["m000"]
+
+
+def test_normalise_never_writes_in_place(caltable, tmp_path):
+    path, _ = caltable
+    before = _amplitudes(path)
+    gains.normalise(path, output=tmp_path / "elsewhere.G0")
+    assert np.allclose(_amplitudes(path), before)
+
+
+def test_cli_normalise_writes_gains_and_a_report(caltable, tmp_path):
+    path, _ = caltable
+    out, report = tmp_path / "cli-norm.G0", tmp_path / "cli-norm.json"
+    result = CliRunner().invoke(
+        cli,
+        ["normalise", str(path), "-o", str(out), "--scope", "block", "--json", str(report)],
+    )
+    assert result.exit_code == 0, result.output
+    assert "# Normalised field=" in result.output
+    assert json.loads(report.read_text())["scope"] == "block"
+    assert gains.read_gains(out)
+
+
+def test_unknown_axis_and_scope_are_refused(caltable):
+    path, _ = caltable
+    with pytest.raises(ValueError, match="unknown axis"):
+        gains.normalise(path, axis="channel")
+    with pytest.raises(ValueError, match="unknown scope"):
+        gains.normalise(path, scope="spw")
