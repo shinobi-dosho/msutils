@@ -17,6 +17,7 @@ Feature-specific modules require optional extras -- ``msutils[flagstats]``,
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _version
 
+from . import gains
 from ._ms import (
     STOKES_TYPES,
     addcol,
@@ -61,6 +62,8 @@ __all__ = [
     "flag_versions",
     # flags
     "flagstats",
+    # gain-table operations (also the `gainutils` console script)
+    "gains",
     # metadata
     "msinfo",
     "renamecol",

@@ -12,7 +12,7 @@ specific to `msutils` and wins where the two disagree.
 
 ## What this is
 
-`msutils` is a Python library and CLI of **everyday Measurement Set operations** for radio-astronomy pipelines — inspect, subset, average, manage columns and flags. Explicitly *not* calibration or imaging. Public functions are exposed on the package root (`import msutils; msutils.msinfo(ms)`) and mirrored by a click CLI (`msutils` console script → `msutils.cli:cli`).
+`msutils` is a Python library and CLI of **everyday Measurement Set operations** for radio-astronomy pipelines — inspect, subset, average, manage columns and flags — plus, since `gainutils`, the same kind of everyday operations on the *other* thing a pipeline produces: **calibration gain tables**. It does not *solve* for calibration and does not image; it manipulates what the solvers write. Public functions are exposed on the package root (`import msutils; msutils.msinfo(ms)`) and mirrored by a click CLI (`msutils` console script → `msutils.cli:cli`).
 
 The headline entry point is **`msinfo`**, which returns a typed `MSInfo`. The old `summary()` is a deprecated adapter over it (`FutureWarning`); do not build anything new on `summary`.
 
@@ -47,7 +47,49 @@ src/msutils/
   _tables.py       open_table / query context managers
   _compat.py       the deprecated summary()
   cli.py           click CLI
+  gains/           gainutils: operations on calibration solutions
+    _model.py        GainTable / GainBlock          <- the core abstraction
+    _casa.py         CASA caltable reader + writer
+    _quartical.py    QuartiCal zarr store reader (needs the `gains` extra)
+    _io.py           format detection, read_gains / write_gains
+    fluxscale.py     flux-density bootstrap
+    cli.py           click CLI (`gainutils` console script)
 ```
+
+### gainutils
+
+A second console script rather than a subcommand group, because these act on
+calibration solutions rather than on Measurement Sets. The design rule is the
+same one `MSInfo` follows: **one model, many formats**.
+
+- **`GainBlock` is dense over `(time, freq, antenna, correlation)`**, one per
+  (field, spw, direction). That is QuartiCal's own axis order, so its arrays
+  need no transpose; a CASA caltable's rows are folded into it on read and
+  unfolded on write via the `rows` map each block keeps.
+- **Operations are `GainTable -> GainTable`** (`GainTable.map`), and never
+  touch IO or a format. `fluxscale` is the first; `smooth` and `normalise`
+  should be arithmetic plus a report and nothing else.
+- **Reductions start from `GainBlock.masked()`.** A median or mean over the
+  raw array folds in flagged solutions and produces a plausible wrong number
+  rather than an error. A (time, antenna) slot the source never had reads
+  back *flagged*, not zero, for the same reason.
+- **Antennas are matched by name, never by position.** Two tables can order
+  antennas differently, and a positional match between them is a silent
+  error. Correlations fall back to positional matching when a format records
+  no labels (a caltable has no `CORR_TYPE`), and the result records which was
+  used.
+- **Nothing is written in place.** Every operation takes an output path and
+  refuses an existing one: a half-rewritten caltable is unrecoverable, and a
+  pipeline that caches on declared outputs cannot see an in-place edit.
+- **A measurement is a value, not a log line.** `fluxscale` returns a
+  dataclass with a `to_dict()`/`save()`; CASA's own task writes its result to
+  a logger that pipelines routinely discard, which is how a flux scale ends
+  up recorded nowhere.
+
+Where a statistic is a real choice, it is a knob with the trade documented:
+`fluxscale`'s `statistic` is `median` (robust) or `mean` (reproduces CASA to
+0.1%), and on real MeerKAT gains the two differ by 0.5% — more than either
+one's error bar.
 
 ### Non-negotiable patterns
 

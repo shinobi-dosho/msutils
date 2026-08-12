@@ -4,6 +4,25 @@
 
 ### Added
 
+- **`gainutils`**, a second console script for operations on calibration gain
+  tables, and `msutils.gains` behind it. One format-neutral model
+  (`GainTable`/`GainBlock`, dense over time/freq/antenna/correlation) that
+  both a CASA caltable and a QuartiCal zarr store fold into, so an operation
+  is written once and a format is a reader plus a writer. Reading a QuartiCal
+  store needs the new `gains` extra (which is `msv4`'s xarray + zarr, named
+  separately because the reason differs); CASA caltables need nothing beyond
+  the base install.
+- `gainutils fluxscale` / `msutils.gains.fluxscale()`: bootstrap a
+  calibrator's flux density from a reference calibrator's gains, and rescale
+  its solutions to be instrumental. Unlike CASA's task it takes the two
+  calibrators as **separate tables** (no appending into a copy of the
+  reference's), writes the transfer field **alone** to its output (CASA
+  carries the reference through, which blends two calibrators' gains if the
+  table is applied without naming a field), matches antennas **by name**, and
+  returns the measurement as a value with a JSON report rather than a log
+  line. Validated against CASA on real MeerKAT data: 5.943 Jy with
+  `--statistic mean` against CASA's 5.938 Jy for the same table.
+
 - `subset()` averages: `time_bin` / `chan_bin` (`--time-bin` / `--chan-bin`),
   with `datacolumn` to pick the column to bin. Selecting and averaging is now
   one pass instead of a subset followed by an `average`. The work is handed to
