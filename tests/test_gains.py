@@ -11,6 +11,7 @@ folded into a "it works" case.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import shutil
 from pathlib import Path
@@ -22,6 +23,11 @@ from gainfactory import corrupt_solution, flag_solution, make_caltable
 
 import msutils.gains as gains
 from msutils.gains.cli import cli
+
+requires_xarray = pytest.mark.skipif(
+    importlib.util.find_spec("xarray") is None,
+    reason="xarray/zarr not installed (msutils[gains])",
+)
 
 
 @pytest.fixture
@@ -623,10 +629,14 @@ def test_cli_smooth_writes_gains_and_a_report(caltable, tmp_path):
 
 
 # ---- QuartiCal stores -------------------------------------------------
+#
+# Marked per test rather than skipped at module level: `importorskip` here
+# would skip the whole file, taking the CASA tests above -- which need
+# nothing beyond the base install -- with it. The bare-install job exists to
+# prove those run without the extras, so it must actually run them.
 
-xr = pytest.importorskip("xarray", reason="xarray/zarr not installed (msutils[gains])")
 
-
+@requires_xarray
 def test_a_quartical_store_reads_into_the_same_model(tmp_path):
     from gainfactory import make_quartical_store
 
@@ -644,6 +654,7 @@ def test_a_quartical_store_reads_into_the_same_model(tmp_path):
     assert block.corrs == ("XX", "YY")
 
 
+@requires_xarray
 def test_a_store_holding_several_terms_refuses_to_guess(tmp_path):
     from gainfactory import make_quartical_store
 
@@ -657,6 +668,7 @@ def test_a_store_holding_several_terms_refuses_to_guess(tmp_path):
     assert gains.read_gains(path, term="K").gain_type == "delay_and_offset"
 
 
+@requires_xarray
 def test_writing_a_store_round_trips_through_an_operation(tmp_path):
     from gainfactory import make_quartical_store
 
@@ -675,6 +687,7 @@ def test_writing_a_store_round_trips_through_an_operation(tmp_path):
     assert (Path(out) / "G" / "G_0" / ".zattrs").exists()
 
 
+@requires_xarray
 def test_flags_collapse_onto_the_solution_when_written(tmp_path):
     """QuartiCal flags a solution, not a correlation of one. Writing has to
     collapse the model's correlation axis, and it does so with `any` -- a
@@ -695,6 +708,7 @@ def test_flags_collapse_onto_the_solution_when_written(tmp_path):
     assert not written.flags[2, :, 0, :].any()
 
 
+@requires_xarray
 def test_a_parameterised_terms_parameters_come_through_and_go_back(tmp_path):
     """QuartiCal rebuilds such a term's gains from `params` when it loads
     them, so the parameters are the authoritative array: an operation that
@@ -721,6 +735,7 @@ def test_a_parameterised_terms_parameters_come_through_and_go_back(tmp_path):
     assert np.allclose(written.params, written.gains.real)
 
 
+@requires_xarray
 def test_scaling_a_phase_like_term_is_refused_as_meaningless(tmp_path):
     """A delay or phase parameterisation describes a gain of unit modulus --
     verified on real stores, |g| = 1 to machine precision -- so there is no
@@ -751,6 +766,7 @@ def test_scaling_a_phase_like_term_is_refused_as_meaningless(tmp_path):
         gains.normalise(delay, term="K", output=tmp_path / "nope-delay.qc")
 
 
+@requires_xarray
 def test_smoothing_a_parameterised_term_filters_its_parameters(tmp_path):
     from gainfactory import make_quartical_store
 
@@ -771,6 +787,7 @@ def test_smoothing_a_parameterised_term_filters_its_parameters(tmp_path):
     assert np.allclose(after.params, after.gains.real)
 
 
+@requires_xarray
 def test_smoothing_a_delay_refuses_to_invent_a_reference_frequency(tmp_path):
     """The parameters could be filtered; the gains cannot be rebuilt from
     them without knowing what the solver referenced the delay to."""
@@ -787,6 +804,7 @@ def test_smoothing_a_delay_refuses_to_invent_a_reference_frequency(tmp_path):
         gains.smooth(path, term="K", output=tmp_path / "nope.qc", time_window=3)
 
 
+@requires_xarray
 def test_blocks_from_another_store_are_refused(tmp_path):
     from gainfactory import make_quartical_store
 
@@ -798,6 +816,7 @@ def test_blocks_from_another_store_are_refused(tmp_path):
         gains.write_gains(table, tmp_path / "mismatch.qc")
 
 
+@requires_xarray
 def test_writing_refuses_an_existing_store(tmp_path):
     from gainfactory import make_quartical_store
 

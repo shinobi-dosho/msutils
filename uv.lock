@@ -1390,6 +1390,11 @@ convert = [
     { name = "ipython" },
     { name = "xradio", extra = ["casacore"] },
 ]
+gains = [
+    { name = "xarray" },
+    { name = "zarr", version = "3.1.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "zarr", version = "3.3.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+]
 msv4 = [
     { name = "xarray" },
     { name = "zarr", version = "3.1.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
@@ -1428,7 +1433,8 @@ requires-dist = [
     { name = "codex-africanus", marker = "extra == 'average'", specifier = ">=0.4" },
     { name = "ipython", marker = "extra == 'convert'" },
     { name = "matplotlib", marker = "extra == 'plots'" },
-    { name = "msutils", extras = ["plots", "average", "msv4", "xarray-ms", "convert"], marker = "extra == 'all'" },
+    { name = "msutils", extras = ["msv4"], marker = "extra == 'gains'" },
+    { name = "msutils", extras = ["plots", "average", "gains", "msv4", "xarray-ms", "convert"], marker = "extra == 'all'" },
     { name = "numpy" },
     { name = "python-casacore" },
     { name = "xarray", marker = "extra == 'msv4'", specifier = ">=2025.0" },
@@ -1436,7 +1442,7 @@ requires-dist = [
     { name = "xradio", extras = ["casacore"], marker = "extra == 'convert'", specifier = ">=1.2" },
     { name = "zarr", marker = "extra == 'msv4'" },
 ]
-provides-extras = ["plots", "average", "msv4", "xarray-ms", "convert", "all"]
+provides-extras = ["plots", "average", "gains", "msv4", "xarray-ms", "convert", "all"]
 
 [package.metadata.requires-dev]
 dev = [
