@@ -13,7 +13,7 @@ from pathlib import Path
 
 from ._casa import is_casa_table, read_casa, write_casa
 from ._model import GainTable
-from ._quartical import is_quartical_store, read_quartical
+from ._quartical import is_quartical_store, read_quartical, write_quartical
 
 __all__ = ["detect_format", "read_gains", "write_gains"]
 
@@ -82,8 +82,10 @@ def write_gains(gains: GainTable, dest: str | Path, *, template: str | Path | No
     """
     if gains.format == "casa":
         return write_casa(gains, dest, template=template)
-    raise NotImplementedError(
-        f"writing {gains.format!r} gains is not implemented yet -- only CASA caltables can be written. "
-        "Reading a QuartiCal store and writing a caltable is a format conversion, which needs its own "
-        "command rather than falling out of a write."
+    if gains.format == "quartical":
+        return write_quartical(gains, dest, template=template)
+    raise ValueError(
+        f"cannot write {gains.format!r} gains (known formats: {sorted(_READERS)}). Writing a table in a "
+        "format it did not come from is a conversion, which needs its own command rather than falling "
+        "out of a write."
     )

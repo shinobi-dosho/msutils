@@ -15,6 +15,7 @@ a solve against a 1 Jy model produces for a source of ``flux`` Jy.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 
@@ -185,3 +186,72 @@ def corrupt_solution(path, *, field_id, antenna, factor):
         params[rows] *= factor
         tab.putcol(column, params)
     return rows
+
+
+def make_quartical_store(
+    path,
+    *,
+    term="G",
+    gain_type="complex",
+    nant=4,
+    ntime=3,
+    nchan=2,
+    ncorr=2,
+    ndir=1,
+    fields=(0,),
+    flux=1.0,
+    seed=0,
+):
+    """Write a small QuartiCal-shaped gain store and return its path.
+
+    Built with xarray/zarr rather than by running a solve: the layout is
+    what matters here -- ``gains`` with axes (gain_time, gain_freq, antenna,
+    direction, correlation), ``gain_flags`` **without** a correlation axis,
+    a ``params`` array beside them, and the FIELD_ID/DATA_DESC_ID/TYPE
+    attributes a reader identifies a dataset by. Verified against a real
+    store written by QuartiCal 0.2.7.
+    """
+    import xarray as xr
+
+    path = str(path)
+    if os.path.exists(path):
+        shutil.rmtree(path)
+
+    rng = np.random.default_rng(seed)
+    for index, field_id in enumerate(fields):
+        shape = (ntime, nchan, nant, ndir, ncorr)
+        amplitude = np.sqrt(flux) * (0.7 + 0.2 * rng.random(shape))
+        phase = 0.1 * rng.standard_normal(shape)
+        dataset = xr.Dataset(
+            {
+                "gains": (("gain_time", "gain_freq", "antenna", "direction", "correlation"),
+                          amplitude * np.exp(1j * phase)),
+                "gain_flags": (("gain_time", "gain_freq", "antenna", "direction"),
+                               np.zeros((ntime, nchan, nant, ndir), dtype=np.int8)),
+                "params": (("param_time", "param_freq", "antenna", "direction", "param_name"),
+                           np.zeros((ntime, 1, nant, ndir, ncorr))),
+            },
+            coords={
+                "gain_time": T0 + np.arange(ntime) * 60.0,
+                "gain_freq": 1.4e9 + np.arange(nchan) * 1e6,
+                "antenna": [f"m{i:03d}" for i in range(nant)],
+                "direction": np.arange(ndir, dtype=np.int32),
+                "correlation": ["XX", "YY"][:ncorr],
+            },
+            attrs={
+                "FIELD_ID": field_id,
+                "DATA_DESC_ID": 0,
+                "FIELD_NAME": "REFCAL" if index == 0 else "GAINCAL",
+                "NAME": term,
+                "TYPE": gain_type,
+            },
+        )
+        dataset.to_zarr(os.path.join(path, term, f"{term}_{index}"), zarr_format=2, consolidated=False)
+
+    # The store root and each term are zarr *groups* in their own right --
+    # `to_zarr` only marks the dataset it writes, and a reader identifying a
+    # store by its group markers would not see one without these.
+    for directory in (path, os.path.join(path, term)):
+        with open(os.path.join(directory, ".zgroup"), "w") as marker:
+            json.dump({"zarr_format": 2}, marker)
+    return path

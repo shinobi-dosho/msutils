@@ -80,6 +80,13 @@ class GainBlock:
             is what lets a writer put values back exactly where they came
             from instead of reconstructing an ordering; None for formats
             that are not row-based.
+        chunks: For a QuartiCal-sourced block, ``(dataset name, number of
+            times)`` per source dataset, in time order. A store splits one
+            field's solutions across several datasets -- QuartiCal chunks
+            its solve, normally per scan -- and this model deliberately
+            concatenates them, so that a block is still one field's whole
+            solution and an operation still sees the time axis the
+            observation actually had. This records how to put it back.
     """
 
     gains: np.ndarray
@@ -92,6 +99,7 @@ class GainBlock:
     spw_id: int | None = None
     direction: int = 0
     rows: np.ndarray | None = None
+    chunks: tuple[tuple[str, int], ...] | None = None
 
     def __post_init__(self) -> None:
         self.gains = np.asarray(self.gains)

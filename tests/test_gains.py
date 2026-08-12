@@ -12,6 +12,8 @@ folded into a "it works" case.
 from __future__ import annotations
 
 import json
+import shutil
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -618,3 +620,108 @@ def test_cli_smooth_writes_gains_and_a_report(caltable, tmp_path):
     assert written["time_window"] == "180s"
     assert written["blocks"][0]["time_samples"] == 3
     assert gains.read_gains(out)
+
+
+# ---- QuartiCal stores -------------------------------------------------
+
+xr = pytest.importorskip("xarray", reason="xarray/zarr not installed (msutils[gains])")
+
+
+def test_a_quartical_store_reads_into_the_same_model(tmp_path):
+    from gainfactory import make_quartical_store
+
+    path = make_quartical_store(tmp_path / "solve.qc", nant=4, ntime=3, nchan=2, ndir=2)
+    table = gains.read_gains(path)
+
+    assert table.format == "quartical"
+    assert table.term == "G" and table.gain_type == "complex"
+    # a direction is a block, not an axis, so every operation stays 4-D
+    assert len(table) == 2
+    assert [b.direction for b in table.blocks] == [0, 1]
+    block = table.blocks[0]
+    assert block.shape == (3, 2, 4, 2)
+    assert block.antennas == ("m000", "m001", "m002", "m003")
+    assert block.corrs == ("XX", "YY")
+
+
+def test_a_store_holding_several_terms_refuses_to_guess(tmp_path):
+    from gainfactory import make_quartical_store
+
+    path = make_quartical_store(tmp_path / "chain.qc", term="G")
+    make_quartical_store(tmp_path / "k.qc", term="K", gain_type="delay_and_offset")
+    shutil.copytree(tmp_path / "k.qc" / "K", Path(path) / "K")
+
+    assert set(gains.quartical_terms(path)) == {"G", "K"}
+    with pytest.raises(ValueError, match="name the one you mean"):
+        gains.read_gains(path)
+    assert gains.read_gains(path, term="K").gain_type == "delay_and_offset"
+
+
+def test_writing_a_store_round_trips_through_an_operation(tmp_path):
+    from gainfactory import make_quartical_store
+
+    path = make_quartical_store(tmp_path / "solve.qc", flux=4.0)
+    out = tmp_path / "normalised.qc"
+    gains.normalise(path, output=out, scope="block", statistic="mean")
+
+    written = gains.read_gains(out)
+    assert written.format == "quartical"
+    amplitude = np.ma.abs(written.blocks[0].masked()).mean()
+    assert amplitude == pytest.approx(1.0)
+    # the source is untouched, and everything the model does not represent
+    # survived the copy
+    assert np.ma.abs(gains.read_gains(path).blocks[0].masked()).mean() > 1.5
+    assert (Path(out) / "G" / "G_0" / "params").exists()
+    assert (Path(out) / "G" / "G_0" / "gain_flags").exists()
+
+
+def test_flags_collapse_onto_the_solution_when_written(tmp_path):
+    """QuartiCal flags a solution, not a correlation of one. Writing has to
+    collapse the model's correlation axis, and it does so with `any` -- a
+    solution one of whose correlations is unusable is not one to apply."""
+    from gainfactory import make_quartical_store
+
+    path = make_quartical_store(tmp_path / "flagme.qc", ntime=5)
+    table = gains.read_gains(path)
+    block = table.blocks[0]
+    flags = block.flags.copy()
+    flags[1, :, 0, 0] = True  # one correlation only
+    table.blocks[0] = block.with_gains(block.gains, flags=flags)
+
+    out = tmp_path / "flagged.qc"
+    gains.write_gains(table, out)
+    written = gains.read_gains(out).blocks[0]
+    assert written.flags[1, :, 0, :].all()  # both correlations, after the collapse
+    assert not written.flags[2, :, 0, :].any()
+
+
+def test_a_parameterised_term_is_refused(tmp_path):
+    """QuartiCal rebuilds a parameterised term's gains from `params` when it
+    loads them, so writing gains alone would be silently overruled."""
+    from gainfactory import make_quartical_store
+
+    path = make_quartical_store(tmp_path / "delay.qc", term="K", gain_type="delay_and_offset")
+    table = gains.read_gains(path)
+    with pytest.raises(ValueError, match="parameterised type 'delay_and_offset'"):
+        gains.write_gains(table, tmp_path / "nope.qc")
+
+
+def test_blocks_from_another_store_are_refused(tmp_path):
+    from gainfactory import make_quartical_store
+
+    path = make_quartical_store(tmp_path / "one.qc", fields=(0,))
+    other = make_quartical_store(tmp_path / "two.qc", fields=(7,))
+    table = gains.read_gains(other)
+    table.path = path  # pretend it came from the first store
+    with pytest.raises(ValueError, match=r"did not\s+come from this store"):
+        gains.write_gains(table, tmp_path / "mismatch.qc")
+
+
+def test_writing_refuses_an_existing_store(tmp_path):
+    from gainfactory import make_quartical_store
+
+    path = make_quartical_store(tmp_path / "solve.qc")
+    out = tmp_path / "taken.qc"
+    out.mkdir()
+    with pytest.raises(FileExistsError):
+        gains.write_gains(gains.read_gains(path), out)

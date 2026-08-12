@@ -50,7 +50,7 @@ src/msutils/
   gains/           gainutils: operations on calibration solutions
     _model.py        GainTable / GainBlock          <- the core abstraction
     _casa.py         CASA caltable reader + writer
-    _quartical.py    QuartiCal zarr store reader (needs the `gains` extra)
+    _quartical.py    QuartiCal zarr store reader + writer (`gains` extra)
     _io.py           format detection, read_gains / write_gains
     _stats.py        the shared flag-aware reduction (median / mean)
     fluxscale.py     flux-density bootstrap
@@ -95,6 +95,16 @@ same one `MSInfo` follows: **one model, many formats**.
   error. Correlations fall back to positional matching when a format records
   no labels (a caltable has no `CORR_TYPE`), and the result records which was
   used.
+- **A block is a field's whole solution, never a storage chunk.** QuartiCal
+  splits one field across datasets by time (normally per scan), so those are
+  concatenated on read and split back on write via `GainBlock.chunks`. Read
+  them as they sit on disk and a two-hour smoothing window silently becomes
+  "whatever one scan held".
+- **Writing a QuartiCal term is refused unless its type is
+  unparameterised.** For everything else -- including `amplitude` and
+  `phase` -- QuartiCal rebuilds the gains from `params` when it loads them,
+  so a writer that touched only `gains` would be silently overruled. The
+  list comes from QuartiCal's own `TERM_TYPES`, not from intuition.
 - **Nothing is written in place.** Every operation takes an output path and
   refuses an existing one: a half-rewritten caltable is unrecoverable, and a
   pipeline that caches on declared outputs cannot see an in-place edit.

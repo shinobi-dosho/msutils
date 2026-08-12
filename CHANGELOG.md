@@ -8,8 +8,11 @@
   tables, and `msutils.gains` behind it. One format-neutral model
   (`GainTable`/`GainBlock`, dense over time/freq/antenna/correlation) that
   both a CASA caltable and a QuartiCal zarr store fold into, so an operation
-  is written once and a format is a reader plus a writer. Reading a QuartiCal
-  store needs the new `gains` extra (which is `msv4`'s xarray + zarr, named
+  is written once and a format is a reader plus a writer. QuartiCal stores
+  are read and written (a write copies the source store and replaces the
+  term's `gains`/`gain_flags`, and is refused for parameterised term types,
+  where QuartiCal rebuilds the gains from `params` on load). Reading or
+  writing a QuartiCal store needs the new `gains` extra (which is `msv4`'s xarray + zarr, named
   separately because the reason differs); CASA caltables need nothing beyond
   the base install.
 - `gainutils smooth` / `msutils.gains.smooth()`: filter solutions in time
