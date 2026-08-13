@@ -174,34 +174,37 @@ Base install is `numpy` + `python-casacore` + `click`, and it covers `msinfo`, a
 ## Attribution: commit trailers yes, PR trailers no
 
 A commit made with an assistant's help says so in a trailer on the
-**commit message**. Use whatever trailer the agent emits by default --
-Claude Code, for instance, ends a commit with
+**commit message**, naming the assistant and the model behind it:
 
 ```
-Co-Authored-By: Claude <noreply@anthropic.com>
+Assisted-by: <LLM> <MODEL>
 ```
 
-An agent with no default of its own uses the same form, naming itself and
-the model behind it, with an address:
+— e.g. `Assisted-by: Claude Opus 5`, `Assisted-by: Codex GPT-5`. One
+line, last in the message, after any `Co-authored-by:` for real people.
 
-```
-Co-authored-by: <AGENT> <MODEL> <EMAIL>
-```
+Agents default to a `Co-authored-by:` trailer with an address; replace
+it. Both halves of that default are wrong here. `Co-authored-by:` claims
+more than happened — these tools assist, and the person who ran them
+owns the change and answers for it. The address is what makes the claim
+bite: GitHub renders a trailer as co-authorship only when one is
+present, so `Co-authored-by: Claude <noreply@anthropic.com>` attaches a
+vendor to the authorship of work this organisation owns. `Assisted-by:`
+with no address records the same fact as plain text and attaches nobody.
 
-— e.g. `Co-authored-by: Codex GPT-5 <noreply@openai.com>`. One line, last
-in the message, after any `Co-authored-by:` for real people. The address
-is not decoration: GitHub only renders a trailer as co-authorship when it
-carries an `<email>`, so without one the credit stays plain text in the
-message body. Credit is the point — these tools do real work here, and
-the history should say so.
+This reverses the rule as it stood until August 2026, which argued that
+co-authorship was the honest description of tools doing real work. The
+consideration that changed it is ownership, not accuracy of credit:
+these are paid services operating on our IP, and the history should not
+carry anything a vendor could read as a stake in it.
 
 **Pull request descriptions carry no trailer at all** — no
-`Co-authored-by:`, no "Generated with", no tool badge. A PR body is
-review material: it exists to tell a reviewer what changed and why, and
-what to check. Provenance already lives on every commit the PR contains,
-where it is attached to the specific change rather than repeated once
-per PR, so a trailer in the description is duplication in the one place
-that has no room for it. Agents default to adding one; delete it.
+`Assisted-by:`, no `Co-authored-by:`, no "Generated with", no tool
+badge. A PR body is review material: it exists to tell a reviewer what
+changed and why, and what to check. Provenance already lives on every
+commit the PR contains, where it is attached to the specific change
+rather than repeated once per PR, so a trailer in the description is
+duplication in the one place that has no room for it. Agents default to adding one; delete it.
 
 Neither form is a substitute for the message itself. A commit that
 explains a decision badly does not improve by naming the model that
