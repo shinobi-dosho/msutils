@@ -253,9 +253,24 @@ def test_empty_keyword_array_is_untyped_in_descriptor_transport():
 )
 def test_empty_string_keyword_array_preserves_native_type(tmp_path):
     ms = tmp_path / "typed-empty-keyword.ms"
-    descriptor = ms_descriptor("MAIN", complete=True)
-    with Table.ms_from_descriptor(str(ms), table_desc=descriptor):
-        pass
+    writer = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys;"
+                "from arcae.lib.arrow_tables import Table, ms_descriptor;"
+                "native = Table.ms_from_descriptor("
+                "sys.argv[1], table_desc=ms_descriptor('MAIN', complete=True));"
+                "native.close()"
+            ),
+            str(ms),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert writer.returncode == 0, writer.stderr
 
     oracle = subprocess.run(
         [
