@@ -9,6 +9,8 @@ first reconstruction profile must refuse until the underlying gap is closed.
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 from importlib.metadata import version
 
 import numpy as np
@@ -250,16 +252,30 @@ def test_empty_keyword_array_is_untyped_in_descriptor_transport():
     reason="arcae 0.5.4 descriptor JSON cannot preserve an empty array's element type",
 )
 def test_empty_string_keyword_array_preserves_native_type(tmp_path):
-    from casacore.tables import table
-
     ms = tmp_path / "typed-empty-keyword.ms"
     descriptor = ms_descriptor("MAIN", complete=True)
     with Table.ms_from_descriptor(str(ms), table_desc=descriptor):
         pass
 
-    with table(str(ms), ack=False) as native:
-        category = native.getcolkeyword("FLAG_CATEGORY", "CATEGORY")
-    assert np.asarray(category).dtype.kind in {"U", "S"}
+    oracle = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys, numpy as np;"
+                "from casacore.tables import table;"
+                "native = table(sys.argv[1], ack=False);"
+                "value = native.getcolkeyword('FLAG_CATEGORY', 'CATEGORY');"
+                "native.close();"
+                "print(np.asarray(value).dtype.kind)"
+            ),
+            str(ms),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert oracle.stdout.strip() in {"U", "S"}
 
 
 @pytest.mark.xfail(
