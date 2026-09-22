@@ -23,6 +23,23 @@ from .info._model import STOKES_TYPES
 _STOKES_CODES = {label: code for code, label in STOKES_TYPES.items()}
 _MJD_UNIX_OFFSET = 40587 * 86400
 
+# MSv4 uses Astropy frame names while casacore stores an MDirection reference
+# name in the FIELD column keywords.  Keep this deliberately conservative:
+# content whose coordinates cannot be labelled faithfully is rejected during
+# preflight rather than written under casacore's default J2000 label.
+_DIRECTION_FRAMES = {
+    "fk5": "J2000",
+    "j2000": "J2000",
+    "icrs": "ICRS",
+    "fk4": "B1950",
+    "b1950": "B1950",
+    "fk4noterms": "B1950_VLA",
+    "galactic": "GALACTIC",
+    "supergalactic": "SUPERGAL",
+    "altaz": "AZELGEO",
+    "hadec": "HADEC",
+}
+
 
 @dataclass(frozen=True)
 class _Partition:
@@ -123,6 +140,17 @@ def _validated_partitions(nodes) -> list[_Partition]:
         part.ds.sizes.get("time", 0) and part.ds.sizes.get("baseline_id", 0) for part in parts
     ):
         raise ValueError("MSv4 processing set contains no correlated visibility rows")
+    _field_frame(parts)
+
+    # A FEED row has one receptor basis per antenna/SPW.  Check this before
+    # removing an existing destination rather than discovering it while the
+    # replacement is half-written.
+    bases = {}
+    for part in parts:
+        basis = frozenset("".join(part.pol_labels))
+        previous = bases.setdefault(part.spw_key, basis)
+        if previous != basis:
+            raise ValueError("one MSv4 spectral window has incompatible feed receptor bases")
     return parts
 
 
@@ -131,6 +159,14 @@ def _partition(node) -> _Partition:
     if str(ds.attrs.get("type", "visibility")) != "visibility":
         raise ValueError("only correlated-interferometer MSv4 visibility data can be materialised")
     groups = ds.attrs.get("data_groups") or {}
+    if not isinstance(groups, dict):
+        raise ValueError("MSv4 data_groups must be a dictionary")
+    extra_groups = [str(name) for name in groups if name != "base"]
+    if extra_groups:
+        raise ValueError(
+            "MSv4 data groups other than 'base' cannot be materialised as one MSv2 DATA "
+            f"column: {sorted(extra_groups)!r}"
+        )
     base = groups.get("base") or {}
     data_name = str(base.get("correlated_data") or "VISIBILITY")
     flag_name = base.get("flag", "FLAG")
@@ -139,6 +175,12 @@ def _partition(node) -> _Partition:
     for name in (data_name, uvw_name):
         if name not in ds:
             raise ValueError(f"MSv4 partition has no required {name!r} variable")
+    data_dtype = np.dtype(ds[data_name].dtype)
+    if data_dtype.kind != "c" or data_dtype.itemsize != np.dtype(np.complex64).itemsize:
+        raise ValueError(
+            f"MSv4 visibility dtype {data_dtype} cannot be represented losslessly by "
+            "the MSv2 complex64 DATA column"
+        )
     for name, expected in (
         (data_name, ("time", "baseline_id", "frequency", "polarization")),
         (uvw_name, ("time", "baseline_id", "uvw_label")),
@@ -173,6 +215,7 @@ def _partition(node) -> _Partition:
     labels = tuple(str(label) for label in np.asarray(ds.polarization.values).reshape(-1))
     if not labels or any(label not in _STOKES_CODES for label in labels):
         raise ValueError(f"MSv4 has unsupported polarization labels {labels!r}")
+    _corr_products(labels)
     a1_names = np.asarray(ds.baseline_antenna1_name.values).reshape(-1)
     a2_names = np.asarray(ds.baseline_antenna2_name.values).reshape(-1)
     if len(a1_names) != ds.sizes["baseline_id"] or len(a2_names) != ds.sizes["baseline_id"]:
@@ -183,6 +226,7 @@ def _partition(node) -> _Partition:
     intent_values = _msv4._intents(ds)
     intent = ",".join(intent_values)
     direction, frame = _msv4._phase_centre(node)
+    frame = _direction_frame(frame)
 
     frequency = np.asarray(ds.frequency.values, dtype=float).reshape(-1)
     if not len(frequency):
@@ -237,6 +281,28 @@ def _scan_number(value: str) -> int:
         return int(value)
     except ValueError as exc:
         raise ValueError(f"MSv4 scan name {value!r} is not an integer MSv2 scan number") from exc
+
+
+def _direction_frame(frame: str) -> str:
+    """Translate an MSv4/Astropy direction frame to a casacore reference."""
+    name = str(frame or "fk5").strip().casefold()
+    try:
+        return _DIRECTION_FRAMES[name]
+    except KeyError:
+        raise ValueError(
+            f"MSv4 direction frame {frame!r} has no supported MSv2 FIELD representation"
+        ) from None
+
+
+def _field_frame(parts: list[_Partition]) -> str:
+    """Return the one FIELD direction reference representable by this table."""
+    frames = {part.field_frame for part in parts}
+    if len(frames) != 1:
+        raise ValueError(
+            "MSv4 partitions use different FIELD direction frames, which cannot be represented "
+            f"by one MSv2 FIELD column reference: {sorted(frames)!r}"
+        )
+    return next(iter(frames))
 
 
 def _antennas(nodes):
@@ -346,7 +412,14 @@ def _write_data_descriptions(outpath, parts, spws, pols) -> None:
 
 def _write_fields(outpath, parts, fields) -> None:
     by_name = {name: part for part in parts for name in part.field_names}
+    frame = _field_frame(parts)
     with open_table(outpath + "::FIELD", readonly=False) as tab:
+        for column in ("PHASE_DIR", "DELAY_DIR", "REFERENCE_DIR"):
+            keywords = dict(tab.getcolkeywords(column))
+            measure = dict(keywords.get("MEASINFO", {}))
+            measure["Ref"] = frame
+            keywords["MEASINFO"] = measure
+            tab.putcolkeywords(column, keywords)
         tab.addrows(len(fields))
         for name, row in fields.items():
             part = by_name[name]

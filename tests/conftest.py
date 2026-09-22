@@ -12,6 +12,27 @@ import pytest
 from msfactory import make_ms
 
 
+def pytest_addoption(parser):
+    """Add the full-stack CI guard without affecting bare-install tests."""
+    parser.getgroup("msutils").addoption(
+        "--fail-on-skips",
+        action="store_true",
+        help="Fail the test session if any test is skipped.",
+    )
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Make a missing optional stack a hard failure in full CI jobs."""
+    if not session.config.getoption("--fail-on-skips"):
+        return
+    reporter = session.config.pluginmanager.get_plugin("terminalreporter")
+    skipped = reporter.stats.get("skipped", []) if reporter is not None else []
+    if not skipped:
+        return
+    reporter.write_sep("=", f"{len(skipped)} test(s) skipped with --fail-on-skips")
+    session.exitstatus = pytest.ExitCode.TESTS_FAILED
+
+
 @pytest.fixture(scope="session")
 def base_ms(tmp_path_factory):
     """A synthetic MS built once per session.

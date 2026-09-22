@@ -28,6 +28,16 @@ def processing_set(base_ms, tmp_path_factory):
 
 
 @pytest.fixture(scope="module")
+def materialized(processing_set, tmp_path_factory):
+    """Materialise the processing set back into a fresh MSv2 once."""
+    from msutils.convert import to_msv2
+
+    out = str(tmp_path_factory.mktemp("materialized") / "obs.ms")
+    to_msv2(processing_set, out)
+    return out
+
+
+@pytest.fixture(scope="module")
 def v4(processing_set):
     return msutils.msinfo(processing_set, level="data")
 
@@ -70,6 +80,52 @@ def test_convert_rejects_unknown_partition_key(base_ms, tmp_path):
 
     with pytest.raises(ValueError, match="unknown partition key"):
         to_msv4(base_ms, str(tmp_path / "x.zarr"), partition_scheme=["NOT_A_COLUMN"])
+
+
+def test_materialize_round_trips_metadata(v2, materialized):
+    import numpy as np
+
+    restored = msutils.msinfo(materialized, level="data")
+    for attribute in (
+        "nrows",
+        "nantennas",
+        "nfields",
+        "nspws",
+        "nscans",
+        "nvisibilities",
+        "nflagged",
+        "start_utc",
+        "end_utc",
+        "integration_times",
+    ):
+        assert getattr(restored, attribute) == getattr(v2, attribute), attribute
+
+    np.testing.assert_allclose(
+        [field.phase_centre for field in restored.fields],
+        [field.phase_centre for field in v2.fields],
+    )
+    assert {field.ref_frame for field in restored.fields} == {"J2000"}
+
+
+def test_materialize_round_trips_visibility_arrays(base_ms, materialized):
+    import numpy as np
+
+    from msutils._tables import open_table, query
+
+    def ordered(path):
+        with open_table(path) as tab:
+            command = (
+                "SELECT DATA, FLAG, UVW, WEIGHT FROM $1 "
+                "ORDERBY TIME, DATA_DESC_ID, ANTENNA1, ANTENNA2"
+            )
+            with query(command, [tab]) as rows:
+                return {column: rows.getcol(column) for column in rows.colnames()}
+
+    original = ordered(base_ms)
+    restored = ordered(materialized)
+    assert original.keys() == restored.keys()
+    for column in original:
+        np.testing.assert_allclose(restored[column], original[column])
 
 
 # --------------------------------------------------------------------------

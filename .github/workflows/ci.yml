@@ -36,8 +36,11 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked --all-extras --group dev
 
-      - name: Run tests
-        run: uv run --locked --all-extras --group dev pytest -q
+      # This is the full-stack job: every optional dependency is installed and
+      # any skip is a failure. The separate bare-install job below is where
+      # dependency-driven skips are expected and reported.
+      - name: Run all tests without skips
+        run: uv run --locked --all-extras --group dev pytest -q --fail-on-skips
 
       - name: Lint
         run: uv run --locked --group dev ruff check .
