@@ -44,6 +44,7 @@ The same call reads MSv2 tables and MSv4 processing sets, returning the same
 
    concepts/formats
    concepts/performance
+   concepts/reconstruction
 
 .. toctree::
    :maxdepth: 2

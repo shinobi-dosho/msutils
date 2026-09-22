@@ -1374,6 +1374,7 @@ dependencies = [
 
 [package.optional-dependencies]
 all = [
+    { name = "arcae" },
     { name = "codex-africanus" },
     { name = "ipython" },
     { name = "matplotlib" },
@@ -1403,6 +1404,9 @@ msv4 = [
 plots = [
     { name = "matplotlib" },
 ]
+reconstruction = [
+    { name = "arcae" },
+]
 xarray-ms = [
     { name = "xarray-ms" },
 ]
@@ -1430,11 +1434,12 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "click", specifier = ">=8.0" },
+    { name = "arcae", marker = "extra == 'reconstruction'", specifier = "==0.5.4" },
     { name = "codex-africanus", marker = "extra == 'average'", specifier = ">=0.4" },
     { name = "ipython", marker = "extra == 'convert'" },
     { name = "matplotlib", marker = "extra == 'plots'" },
     { name = "msutils", extras = ["msv4"], marker = "extra == 'gains'" },
-    { name = "msutils", extras = ["plots", "average", "gains", "msv4", "xarray-ms", "convert"], marker = "extra == 'all'" },
+    { name = "msutils", extras = ["plots", "average", "gains", "msv4", "xarray-ms", "reconstruction", "convert"], marker = "extra == 'all'" },
     { name = "numpy" },
     { name = "python-casacore" },
     { name = "xarray", marker = "extra == 'msv4'", specifier = ">=2025.0" },
@@ -1442,7 +1447,7 @@ requires-dist = [
     { name = "xradio", extras = ["casacore"], marker = "extra == 'convert'", specifier = ">=1.2" },
     { name = "zarr", marker = "extra == 'msv4'" },
 ]
-provides-extras = ["plots", "average", "gains", "msv4", "xarray-ms", "convert", "all"]
+provides-extras = ["plots", "average", "gains", "msv4", "xarray-ms", "reconstruction", "convert", "all"]
 
 [package.metadata.requires-dev]
 dev = [

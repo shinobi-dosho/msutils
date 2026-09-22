@@ -65,6 +65,11 @@ msv4 = [
 xarray-ms = [
     "xarray-ms>=0.5",
 ]
+# Experimental native MSv2 reconstruction probes.  The writer itself is not
+# public yet; pinning arcae keeps the Phase 0 capability evidence reproducible.
+reconstruction = [
+    "arcae==0.5.4",
+]
 # msutils.convert: writing MSv2 -> MSv4 processing sets.
 #
 # `ipython` is not ours: xradio pulls in `toolviper`, whose
@@ -78,7 +83,7 @@ convert = [
     "ipython",
 ]
 all = [
-    "msutils[plots,average,gains,msv4,xarray-ms,convert]",
+    "msutils[plots,average,gains,msv4,xarray-ms,reconstruction,convert]",
 ]
 
 [dependency-groups]
