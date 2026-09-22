@@ -30,6 +30,7 @@ COMMANDS = [
     "check",
     "taql",
     "convert",
+    "materialize",
 ]
 
 

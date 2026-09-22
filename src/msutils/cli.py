@@ -533,5 +533,32 @@ def convert(ms, outpath, partitions, no_pointing, overwrite):
     click.echo(info.render())
 
 
+@cli.command("materialize")
+@click.argument("msv4")
+@click.argument("outpath")
+@click.option("--no-weight-spectrum", is_flag=True, help="Do not write WEIGHT_SPECTRUM.")
+@click.option("--rowchunk", type=click.IntRange(min=1), default=64, show_default=True)
+@click.option("--overwrite", is_flag=True, help="Replace OUTPATH if it exists.")
+def materialize(msv4, outpath, no_weight_spectrum, rowchunk, overwrite):
+    """Materialise MSv4 Zarr at MSV4 as a fresh MSv2 at OUTPATH.
+
+    Needs the 'msv4' extra (xarray + zarr). Unsupported MSv4 content is
+    rejected rather than silently omitted.
+    """
+    from .convert import to_msv2
+
+    try:
+        info = to_msv2(
+            msv4,
+            outpath,
+            overwrite=overwrite,
+            weight_spectrum=not no_weight_spectrum,
+            rowchunk=rowchunk,
+        )
+    except ImportError as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(info.render())
+
+
 if __name__ == "__main__":
     cli()
