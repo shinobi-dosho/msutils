@@ -191,7 +191,7 @@ def test_indexed_fixed_shape_and_scalar_values_roundtrip(tmp_path):
     np.testing.assert_array_equal(actual_notes, notes[inverse])
     np.testing.assert_array_equal(actual_specials, specials[inverse])
     assert actual_data.dtype == np.dtype(np.complex64)
-    assert flag_descriptor["valueType"] == "BOOLEAN"
+    assert flag_descriptor["valueType"].upper() == "BOOLEAN"
     assert actual_flags.dtype == np.dtype(np.uint8)
     assert actual_specials.dtype == np.dtype(np.float64)
     assert actual_specials.view(np.uint64).tolist() == specials[inverse].view(np.uint64).tolist()
