@@ -1,4 +1,4 @@
-"""Convert MSv2 Measurement Sets to MSv4 processing sets.
+"""Convert between MSv2 Measurement Sets and MSv4 processing sets.
 
 A thin wrapper over :func:`xradio.measurement_set.convert_msv2_to_processing_set`
 -- xradio owns the conversion, this owns the ergonomics: argument validation,
@@ -20,13 +20,47 @@ from typing import Any
 
 from .info import MSInfo, msinfo
 
-__all__ = ["PARTITION_KEYS", "to_msv4"]
+__all__ = ["PARTITION_KEYS", "to_msv2", "to_msv4"]
 
 LOGGER = logging.getLogger(__name__)
 
 #: Extra keys ``partition_scheme`` accepts. MSv4 always partitions by spectral
 #: window, polarization setup and observation mode; these subdivide further.
 PARTITION_KEYS = ("FIELD_ID", "SCAN_NUMBER", "STATE_ID", "ANTENNA1")
+
+
+def to_msv2(
+    msv4: str,
+    outpath: str,
+    *,
+    overwrite: bool = False,
+    weight_spectrum: bool = True,
+    rowchunk: int = 64,
+) -> MSInfo:
+    """Materialise a new MSv2 from an MSv4 Zarr processing set.
+
+    This supports correlated-interferometer processing sets.  MSv4 content
+    with no MSv2 equivalent is rejected rather than being silently omitted.
+    It needs the ``msv4`` extra (plain xarray + zarr), not xradio or
+    xarray-ms.
+
+    Args:
+        msv4: Source MSv4 Zarr processing set.
+        outpath: New MSv2 table to create.
+        overwrite: Replace a pre-existing destination.
+        weight_spectrum: Write MSv4's per-channel weights as
+            ``WEIGHT_SPECTRUM``. MSv2 ``WEIGHT`` is always the channel mean.
+        rowchunk: Time samples loaded from each partition at a time.
+    """
+    from ._msv4convert import to_msv2 as materialise
+
+    return materialise(
+        msv4,
+        outpath,
+        overwrite=overwrite,
+        weight_spectrum=weight_spectrum,
+        rowchunk=rowchunk,
+    )
 
 
 def to_msv4(
