@@ -183,6 +183,7 @@ def test_indexed_fixed_shape_and_scalar_values_roundtrip(tmp_path):
         actual_flags = main.getcol("FLAG")
         actual_specials = main.getcol("SPECIAL")
         actual_notes = main.getcol("ROW_NOTE")
+        flag_descriptor = main.getcoldesc("FLAG")
         groups = {group["NAME"]: group for group in main.getdminfo().values()}
 
     np.testing.assert_array_equal(actual_data, data[inverse])
@@ -190,7 +191,8 @@ def test_indexed_fixed_shape_and_scalar_values_roundtrip(tmp_path):
     np.testing.assert_array_equal(actual_notes, notes[inverse])
     np.testing.assert_array_equal(actual_specials, specials[inverse])
     assert actual_data.dtype == np.dtype(np.complex64)
-    assert actual_flags.dtype == np.dtype(bool)
+    assert flag_descriptor["valueType"] == "BOOLEAN"
+    assert actual_flags.dtype == np.dtype(np.uint8)
     assert actual_specials.dtype == np.dtype(np.float64)
     assert actual_specials.view(np.uint64).tolist() == specials[inverse].view(np.uint64).tolist()
     assert groups["VISIBILITY_GROUP"]["TYPE"] == "TiledColumnStMan"
@@ -322,10 +324,6 @@ def test_zero_length_variable_cell_roundtrips(tmp_path):
     assert actual.shape == expected.shape
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="linked subtable keywords retain the staging path after directory relocation",
-)
 def test_linked_optional_subtable_survives_parent_relocation(tmp_path):
     staged = tmp_path / "stage.ms"
     published = tmp_path / "published.ms"

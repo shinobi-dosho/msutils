@@ -74,8 +74,9 @@ implementation demonstrate it.
        row order.
    * - Boolean, string, complex and special floats
      - supported
-     - Exact dtype/value probes cover flags, scalar strings, complex64 data,
-       signed zero, NaN and infinities.
+     - Value and descriptor probes cover flags, scalar strings, complex64
+       data, signed zero, NaN and infinities. Arcae 0.5.4 exposes a native
+       BOOLEAN column to NumPy as ``uint8`` rather than ``bool``.
    * - Explicit descriptors and data managers
      - supported
      - Fixed-shape tiled columns reopen with their declared descriptors and
@@ -102,10 +103,9 @@ implementation demonstrate it.
        requires independent native type verification before support can be
        claimed.
    * - Relocating a staged MS with linked optional subtables
-     - gated
-     - The desired post-rename link invariant remains a strict
-       expected-failure probe. Publication must repair/rebuild links or avoid
-       directory relocation.
+     - supported
+     - After a parent-directory rename, the optional-subtable keyword resolves
+       to the published path and the table reopens through ``::``.
    * - Arbitrary source data-manager records
      - gated
      - The first profile must use an allowlisted output policy; virtual and
