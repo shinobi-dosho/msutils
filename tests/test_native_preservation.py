@@ -317,6 +317,24 @@ def test_capture_refuses_chunk_above_ceiling(zarr_lib, tmp_path, monkeypatch):
     assert not bundle.exists()
 
 
+@pytest.mark.parametrize(
+    ("ceiling", "value", "column"),
+    [("_MAX_CHUNK_BYTES", 1, "UVW"), ("_MAX_STRING_CHUNK_ELEMENTS", 0, "TYPE")],
+)
+def test_payload_ceilings_do_not_limit_native_identity(
+    zarr_lib, tmp_path, monkeypatch, ceiling, value, column
+):
+    """The chunk ceilings bound what a payload stores, not what an MS may
+    contain: capture refuses, native_logical_id still identifies the MS."""
+    source, state = _source(tmp_path)
+    identity = native_logical_id(source)
+    monkeypatch.setattr(native, ceiling, value)
+    refusal = _refusal("chunk-size", capture_native_preservation, source, state, tmp_path / "b")
+    assert refusal.column == column
+    monkeypatch.setattr(native, "_READ_BYTES", 1)  # one row per identity read
+    assert native_logical_id(source) == identity
+
+
 @pytest.mark.parametrize("block_rows", [0, -1, True, 1.5])
 def test_capture_validates_block_rows(zarr_lib, tmp_path, block_rows):
     source, state = _source(tmp_path)

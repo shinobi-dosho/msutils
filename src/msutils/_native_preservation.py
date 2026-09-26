@@ -809,14 +809,19 @@ def _capture_table(
                 )
                 continue
             shape = _cell_shape(tab, name, nrows, table_id)
-            rows = _chunk_rows(tag, shape, nrows, block_rows, table_id, name)
+            if sink is None:
+                # Identity only: the chunk ceilings bound what the payload
+                # stores, not what an MS may contain, so they do not apply.
+                rows = _batch_rows([{"dtype": tag, "shape": list(shape)}], nrows)
+            else:
+                rows = _chunk_rows(tag, shape, nrows, block_rows, table_id, name)
             full = (nrows, *shape)
             hasher = _ArrayHasher(tag, full, pool=pool)
             array = sink.column(table_id, name, tag, full, rows) if sink is not None else None
             for start in range(0, nrows, rows):
                 count = min(rows, nrows - start)
                 values = _column_values(tab, name, tag, shape, start, count, table_id)
-                if tag == "string":
+                if array is not None and tag == "string":
                     size = sum(len(item.encode("utf-8")) for item in values.reshape(-1))
                     if size > _MAX_CHUNK_BYTES:
                         raise NativePreservationRefusal(
@@ -1387,7 +1392,7 @@ def _row_bytes(col: dict[str, Any]) -> int:
 
 
 def _batch_rows(columns: list[dict[str, Any]], rows: int) -> int:
-    """Rows per write or verify batch so one batch of all columns stays bounded."""
+    """Rows per write, verify or identity-read batch, keeping one batch bounded."""
     return max(1, min(rows, _READ_BYTES // sum(_row_bytes(col) for col in columns)))
 
 
