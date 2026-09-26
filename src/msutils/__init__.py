@@ -33,10 +33,13 @@ from .diagnostics import check, du, taql
 from .flags import flag_backup, flag_delete, flag_restore, flag_versions
 from .flagstats import flagstats
 from .info import MSInfo, detect_format, msinfo
+from .logical import LOGICAL_HASH, LogicalIdRefusal, logical_id
 from .subset import average, subset
 
 __all__ = [
+    "LOGICAL_HASH",
     "STOKES_TYPES",
+    "LogicalIdRefusal",
     "MSInfo",
     "NativePreservationRefusal",
     "__version__",
@@ -60,6 +63,8 @@ __all__ = [
     "flagstats",
     # gain-table operations (also the `gainutils` console script)
     "gains",
+    # logical identity
+    "logical_id",
     # metadata
     "msinfo",
     "renamecol",

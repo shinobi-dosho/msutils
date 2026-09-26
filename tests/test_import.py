@@ -16,6 +16,9 @@ PUBLIC_API = [
     "verify_antpos",
     "addnoise",
     "STOKES_TYPES",
+    "logical_id",
+    "LOGICAL_HASH",
+    "LogicalIdRefusal",
 ]
 
 
@@ -47,7 +50,7 @@ def test_removed_1x_aliases_are_gone():
 
 
 def test_importing_msutils_does_not_pull_in_optional_stacks():
-    """The base install must not need arcae, matplotlib, dask, africanus or xradio.
+    """The base install must not need arcae, matplotlib, dask, africanus, xradio or zarr.
 
     Run in a subprocess so the check sees a clean module table -- by the time
     the rest of the suite has run, plenty of optional stacks are imported.
@@ -59,7 +62,7 @@ def test_importing_msutils_does_not_pull_in_optional_stacks():
     code = (
         "import sys, msutils;"
         "heavy = [m for m in ('arcae', 'matplotlib', 'dask', 'daskms', 'africanus',"
-        " 'xradio', 'scipy', 'xarray') if m in sys.modules];"
+        " 'xradio', 'scipy', 'xarray', 'zarr') if m in sys.modules];"
         "print(','.join(heavy))"
     )
     # pytest's `pythonpath` setting applies to this process only, so hand the

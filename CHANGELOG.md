@@ -4,6 +4,15 @@
 
 ### Added
 
+- `msutils.logical_id()` and `LOGICAL_HASH`: `msutils-logical-hash/v1`, a
+  SHA-256 Merkle identity of a Zarr v3 tree's raw logical content that does
+  not change with chunking, sharding, codecs, byte order, `fill_value`,
+  consolidated metadata or fixed- versus variable-width strings. The tree is
+  preflighted by msutils' own parser before zarr opens anything, refusing
+  (`LogicalIdRefusal`) Zarr v2, symlinks, stray files, lossy or unknown
+  codecs and stale consolidated metadata. Specified, with golden vectors, in
+  the new *Logical identity of Zarr trees* page. Needs the `msv4` extra, which
+  now requires `zarr>=3.1`.
 - **`gainutils`**, a second console script for operations on calibration gain
   tables, and `msutils.gains` behind it. One format-neutral model
   (`GainTable`/`GainBlock`, dense over time/freq/antenna/correlation) that

@@ -67,6 +67,14 @@ Format conversion
 .. automodule:: msutils.convert
    :members: to_msv4, PARTITION_KEYS
 
+Logical identity
+----------------
+
+See :doc:`../concepts/logical_identity`.
+
+.. automodule:: msutils.logical
+   :members: logical_id, LogicalIdRefusal, LOGICAL_HASH, BLOCK_ELEMENTS
+
 Deprecated
 ----------
 
