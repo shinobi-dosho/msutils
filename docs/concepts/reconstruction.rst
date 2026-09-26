@@ -116,12 +116,179 @@ The strict expected-failure probes are intentional capability sentinels.  An
 unexpected pass fails the suite so that the matrix and reconstruction boundary
 must be reviewed rather than silently becoming broader.
 
+Exact-native bundle (schema v2)
+-------------------------------
+
+:func:`~msutils.capture_native_preservation` writes a new directory holding
+exactly two entries:
+
+.. code-block:: text
+
+   <bundle>/
+     manifest.json        descriptors, info, managers, keywords, references,
+                          column records and the three logical IDs
+     native.zarr/         Zarr v3: one group per table, one array per defined column
+       MAIN/DATA/...
+       ANTENNA/...        a group even when the table has no rows
+
+Nothing else may sit inside the bundle; keep sidecars next to it. Each
+defined column is one array of shape ``[rows, *cell_shape]`` in the column's
+own casacore type:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 30 40
+
+   * - casacore ``valueType``
+     - Payload ``data_type``
+     - Note
+   * - ``boolean``
+     - ``bool``
+     - never widened to bytes
+   * - ``uchar``
+     - ``uint8``
+     - python-casacore reads it as ``uint16``; capture narrows it, refusing a
+       value above 255 (``cell-dtype``)
+   * - ``short``, ``int``, ``uint``, ``int64``
+     - ``int16``, ``int32``, ``uint32``, ``int64``
+     -
+   * - ``float``, ``double``
+     - ``float32``, ``float64``
+     - NaN payloads and signed zeros kept bit for bit
+   * - ``complex``, ``dcomplex``
+     - ``complex64``, ``complex128``
+     - written with ``write_empty_chunks`` so signed zeros survive
+   * - ``string``
+     - ``string`` (``vlen-utf8``)
+     - variable length, including embedded NULs
+   * - anything else
+     - --
+     - refused before any cell is read (``column-type``)
+
+An undefined column has no array, only its manifest record; a table with no
+rows is an empty group. Payload arrays carry no attributes or dimension
+names -- the manifest is the only authority for metadata. ``block_rows`` is
+now just the payload's chunking: ``None`` (the default) sizes chunks to about
+64 MiB decoded (4096 rows for strings), and a chunk above 2 GiB decoded is
+refused with ``chunk-size``. Capture reads cells in row ranges with
+``getcol``, finds definedness with one TaQL ``ISDEFINED`` query per table,
+checks shape uniformity with ``getcolshapestring``, and reads the staged
+payload back and compares its digests with those streamed from casacore
+before it publishes anything (``payload-readback``).
+
+Binding by logical identity
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The manifest records three IDs, all ``msutils-logical-hash/v1`` (see
+:doc:`logical_identity`):
+
+``msv4.logical_id``
+    :func:`~msutils.logical_id` of the MSv4 tree. It is a pairing binding
+    only: the exact writer never reads MSv4 values.
+``payload.logical_id``
+    :func:`~msutils.logical_id` of ``native.zarr``, with one array digest per
+    column recorded in the column's ``digest``.
+``native_logical_id``
+    The logical hash of the ``msutils-native-model/v1`` virtual tree of the
+    native MS: one group per table whose attributes are its rows, descriptor,
+    info, storage managers (without ``StandardStMan`` ``IndexLength``),
+    keywords, references and column records, and one array per defined
+    column. :func:`~msutils.native_logical_id` computes it from a live MSv2
+    with only the base install, so it is equal for the source at capture, for
+    the bundle, and for a faithfully materialised target.
+
+Because the bindings are logical, **either tree may be rechunked,
+recompressed, resharded or re-encoded losslessly** (any layout the reading
+policy admits) and the pair stays valid. Changing one value, attribute,
+keyword or structural detail changes an ID and refuses.
+
+Planning and restoring recompute everything, cheapest checks first: the
+bundle root and manifest; the version; the two permitted root entries; the
+manifest structure; the payload's reading policy and exact structure
+(``payload-structure``); every payload column digest (``payload-changed``)
+and the payload and native IDs (``bundle-integrity``); and finally the MSv4
+tree's ID (``zarr-changed``, or ``zarr-empty`` for a tree without arrays).
+:func:`~msutils.verify_native_preservation` runs exactly these checks without
+writing anything and returns the three IDs.
+
+Verification then compares the target's cells with the digests *planned*
+from the payload, not with a fresh read of it, so a payload modified between
+planning and writing is refused (``verify-payload-changed``), and a differing
+cell is named by table, column and row (``verify-cell``). The target's own
+native logical ID must equal the bundle's (``verify-native-id``), a final
+guard against the structural checks and the native model drifting apart.
+
+New and renamed refusal codes: ``bundle-version``, ``bundle-extra-entry``,
+``payload-structure``, ``payload-changed``, ``payload-readback``,
+``bundle-integrity``, ``column-type``, ``chunk-size`` (was ``block-size``),
+``verify-payload-changed``, ``verify-native-id``, and every ``zarr-*`` code
+of the reading policy, prefixed ``msv4:`` or ``payload:`` in the reason.
+``zarr-changed`` now means the MSv4 tree's *logical* content changed.
+
+Cost
+~~~~
+
+Planning reads the whole payload once and the whole MSv4 tree once. The
+writer reads the payload again. On success, verification reads the target
+once. Only when a column's digest mismatches does it read more: it re-reads
+that column of the payload to tell a payload changed after planning from a
+bad write, and then streams that column of both the target and the payload
+again to name the first differing row. Capture and
+:func:`~msutils.native_logical_id` hold read locks while hashing every file
+of the source MS twice (before and after, to detect concurrent writers) and
+reading every defined cell once.
+
+Binding to an independently held ID
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The bundle checks itself: its payload against its manifest, and its native
+ID against both. A manifest re-edited *consistently* with a tampered payload
+therefore passes, which is outside this integrity check's threat model.
+A caller that holds the native logical ID independently -- such as a state
+store that recorded it at capture -- should pass it::
+
+    to_msv2("state.zarr", "restored.ms", fidelity="exact-native-v1",
+            preservation="state.native",
+            expected_native_logical_id=recorded_id)
+
+A mismatch with the bundle's verified ID refuses with ``native-id-mismatch``
+before anything is written.
+
+Untrusted bundles
+~~~~~~~~~~~~~~~~~
+
+Planning or verifying a bundle, or an MSv4 tree, from an untrusted source
+can exhaust memory rather than refuse. A variable-length string chunk
+cannot be sized before it is decoded: a small zstd-compressed chunk can
+expand into a very large amount of memory. The ceilings on elements per
+chunk and on chunk file size do not bound the decoded size of the strings
+themselves. See :doc:`logical_identity`.
+
+Version 1 bundles
+~~~~~~~~~~~~~~~~~
+
+Bundles written by pre-release ``main`` (schema
+``msutils-native-preservation/v1``: per-block ``.npy`` files bound by a byte
+ledger of the Zarr files) are refused with ``bundle-version``; recapture them
+from the source MS. Schema v1 was never part of a release. The public
+fidelity name, ``exact-native-v1``, and the profile,
+``fixed-shape-defined-or-empty/v1``, are unchanged: what is guaranteed and
+what is accepted did not change, only the storage format.
+
+Both trees must be Zarr v3. :func:`~msutils.to_msv4` (xradio 1.2) and
+xarray-ms exports write Zarr v3 on the supported stack; a Zarr v2 MSv4 tree is
+refused with ``zarr-format`` and must be re-exported with ``zarr_format=3``
+before a bundle can be bound to it.
+
 Dependency boundary
 -------------------
 
 The ``exact-native`` extra currently pins dask-ms 0.2.32 as a temporary,
 established writer backend. Capture and the mandatory independent read-back
-verification use python-casacore, already a base dependency of ``msutils``.
+verification use python-casacore, already a base dependency of ``msutils``;
+the payload and the logical IDs of Zarr trees need zarr from the ``msv4``
+extra (``zarr>=3.1``), which ``exact-native`` includes.
+:func:`~msutils.native_logical_id` needs only the base install.
 The reconstruction plan and preservation bundle remain backend-neutral so the
 writer can move to xarray-ms once its MSv2 writing support is ready; exact-mode
 semantics must not depend on dask-ms-specific objects.

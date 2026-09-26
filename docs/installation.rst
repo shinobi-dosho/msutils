@@ -33,8 +33,8 @@ needs it:
      - codex-africanus
      - :func:`~msutils.average`
    * - ``msv4``
-     - xarray, zarr
-     - reading MSv4 processing sets
+     - xarray, zarr (3.1 or newer)
+     - reading MSv4 processing sets; :func:`~msutils.logical_id`
    * - ``xarray-ms``
      - xarray-ms
      - reading an MSv2 through the MSv4 schema
@@ -46,7 +46,8 @@ needs it:
      - writing MSv2 → MSv4
    * - ``exact-native``
      - dask-ms 0.2.32, xarray, zarr
-     - bounded exact-native MSv4/Zarr → MSv2 restoration with a preservation bundle
+     - bounded exact-native MSv4/Zarr → MSv2 restoration with a v2 preservation
+       bundle
 
 .. code-block:: console
 
@@ -54,7 +55,9 @@ needs it:
     $ pip install "msutils[all]"        # everything
 
 Note that *reading* MSv4 needs only ``msv4`` (xarray + zarr); xradio is
-required just to *write* a processing set.
+required just to *write* a processing set. :func:`~msutils.logical_id` needs
+the ``msv4`` extra, while :func:`~msutils.native_logical_id` works on the base
+install.
 
 From source
 -----------
