@@ -86,27 +86,38 @@ descriptors or keywords that an MSv4 export omitted.
 For exact native restoration, capture a preservation bundle while the source
 MSv2 still exists, then keep it with the exported Zarr state::
 
-    from msutils import capture_native_preservation, to_msv2
+    from msutils import (capture_native_preservation, native_logical_id, to_msv2,
+                         verify_native_preservation)
 
     capture_native_preservation("source.ms", "state.zarr", "state.native")
     to_msv2("state.zarr", "restored.ms", fidelity="exact-native-v1",
              preservation="state.native")
 
-This opt-in path uses ``msutils[exact-native]`` (dask-ms 0.2.32). Its versioned
-bundle contains typed descriptors, managers, keywords, subtable relationships,
-row counts and fixed-shape native cells. In this first profile the native
-cells are preserved in full, so the bundle can be large. The exact writer
-restores those bundle payloads; it does not read the MSv4 visibility arrays
-into the target. It reads through and hashes the Zarr tree to check integrity,
-but this API does not prove that the tree was exported from the captured MSv2.
-Callers must establish that provenance during export. The bundle and Zarr
-together are the reusable state; a Zarr hierarchy alone is insufficient for
-exact native restoration.
+    # Re-validate the restored MS against the state it came from.
+    ids = verify_native_preservation("state.zarr", "state.native")
+    assert native_logical_id("restored.ms") == ids.native_logical_id
 
-Capture and verification inspect every defined cell in Python, and capture
-also inventories and hashes the source tree before and after reading it. Both
-runtime and bundle size therefore scale with the complete native MS, not just
-its metadata; plan capacity and storage before using this mode on a large MS.
+This opt-in path uses ``msutils[exact-native]`` (dask-ms 0.2.32). Its versioned
+bundle (schema ``msutils-native-preservation/v2``) contains typed descriptors,
+managers, keywords, subtable relationships and row counts in a manifest, and
+the fixed-shape native cells as a Zarr v3 payload in their exact casacore
+types. In this first profile the native cells are preserved in full, so the
+bundle can be large. The exact writer restores those bundle payloads; it does
+not read the MSv4 visibility arrays into the target. It binds the Zarr tree by
+its logical ID (:func:`msutils.logical_id`), so lossless rechunking or
+recompression of either tree keeps the bundle valid, but this API does not
+prove that the tree was exported from the captured MSv2. Callers must
+establish that provenance during export. The bundle and Zarr together are the
+reusable state; a Zarr hierarchy alone is insufficient for exact native
+restoration. :func:`msutils.native_logical_id` gives the native MS's own
+identity, which the bundle records and a restored MS reproduces; see
+:doc:`reconstruction` and :doc:`logical_identity`.
+
+Capture and verification read every defined cell, in row ranges through
+``getcol``, and capture also inventories and hashes the source tree before
+and after reading it. Both runtime and bundle size therefore scale with the
+complete native MS, not just its metadata; plan capacity and storage before
+using this mode on a large MS.
 
 The exact mode accepts fixed-shape columns whose cells are all defined or all
 undefined. It refuses mixed definedness, ragged cells, ambiguous empty typed

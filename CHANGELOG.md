@@ -4,6 +4,40 @@
 
 ### Added
 
+- **Exact-native MSv2 restoration** from a data-only preservation bundle:
+  `capture_native_preservation()` while the source MS exists, then
+  `to_msv2(..., fidelity="exact-native-v1", preservation=...)` or
+  `msutils materialize --fidelity exact-native-v1 --preservation ...`
+  (`exact-native` extra, pinned dask-ms 0.2.32). The bundle (schema
+  `msutils-native-preservation/v2`) is `manifest.json` plus `native.zarr`, a
+  Zarr v3 hierarchy holding every defined column in its exact casacore type
+  -- booleans stay booleans, `uchar` is `uint8`, strings are variable-length
+  and NaN payloads and complex signed zeros survive. It is bound to its MSv4
+  tree by logical content, not file bytes, so either tree may be rechunked or
+  recompressed losslessly; a changed value or attribute refuses. The target
+  is verified independently with python-casacore and published with a
+  no-replace rename. `block_rows` now only chooses the payload's chunking;
+  the default (`None`) sizes chunks to about 64 MiB. Bundles from
+  pre-release `main` (schema v1, per-block `.npy` files) are refused with
+  `bundle-version` and must be recaptured.
+- `msutils.logical_id()` and `LOGICAL_HASH`: `msutils-logical-hash/v1`, a
+  SHA-256 Merkle identity of a Zarr v3 tree's raw logical content that does
+  not change with chunking, sharding, codecs, byte order, `fill_value`,
+  consolidated metadata or fixed- versus variable-width strings. The tree is
+  preflighted by msutils' own parser before zarr opens anything, refusing
+  (`LogicalIdRefusal`) Zarr v2, symlinks, stray files, lossy or unknown
+  codecs and stale consolidated metadata. Specified, with golden vectors, in
+  the new *Logical identity of Zarr trees* page. Needs the `msv4` extra, which
+  now requires `zarr>=3.1`.
+- `msutils.native_logical_id()`: the same algorithm over a virtual tree of a
+  live MSv2's native tables, equal for the source, its bundle and a restored
+  MS. Works on the base install.
+- `msutils.verify_native_preservation()`: every check restoration makes
+  before writing, returning the bundle's three IDs as
+  `NativePreservationIds`.
+- `to_msv2(..., expected_native_logical_id=...)`: bind an exact-native
+  restoration to a native logical ID held independently of the bundle;
+  a mismatch refuses with `native-id-mismatch` before anything is written.
 - **`gainutils`**, a second console script for operations on calibration gain
   tables, and `msutils.gains` behind it. One format-neutral model
   (`GainTable`/`GainBlock`, dense over time/freq/antenna/correlation) that

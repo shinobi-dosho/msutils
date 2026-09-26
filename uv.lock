@@ -1486,7 +1486,7 @@ requires-dist = [
     { name = "xarray", marker = "extra == 'msv4'", specifier = ">=2025.0" },
     { name = "xarray-ms", marker = "extra == 'xarray-ms'", specifier = ">=0.5" },
     { name = "xradio", extras = ["casacore"], marker = "extra == 'convert'", specifier = ">=1.2" },
-    { name = "zarr", marker = "extra == 'msv4'" },
+    { name = "zarr", marker = "extra == 'msv4'", specifier = ">=3.1" },
 ]
 provides-extras = ["plots", "average", "gains", "msv4", "xarray-ms", "reconstruction", "exact-native", "convert", "all"]
 

@@ -28,16 +28,28 @@ from ._ms import (
     verify_antpos,
 )
 from ._package import __version__
-from .convert import NativePreservationRefusal, capture_native_preservation, to_msv2, to_msv4
+from .convert import (
+    NativePreservationIds,
+    NativePreservationRefusal,
+    capture_native_preservation,
+    native_logical_id,
+    to_msv2,
+    to_msv4,
+    verify_native_preservation,
+)
 from .diagnostics import check, du, taql
 from .flags import flag_backup, flag_delete, flag_restore, flag_versions
 from .flagstats import flagstats
 from .info import MSInfo, detect_format, msinfo
+from .logical import LOGICAL_HASH, LogicalIdRefusal, logical_id
 from .subset import average, subset
 
 __all__ = [
+    "LOGICAL_HASH",
     "STOKES_TYPES",
+    "LogicalIdRefusal",
     "MSInfo",
+    "NativePreservationIds",
     "NativePreservationRefusal",
     "__version__",
     # columns
@@ -60,8 +72,11 @@ __all__ = [
     "flagstats",
     # gain-table operations (also the `gainutils` console script)
     "gains",
+    # logical identity
+    "logical_id",
     # metadata
     "msinfo",
+    "native_logical_id",
     "renamecol",
     # datasets
     "subset",
@@ -72,4 +87,5 @@ __all__ = [
     "to_msv2",
     "to_msv4",
     "verify_antpos",
+    "verify_native_preservation",
 ]

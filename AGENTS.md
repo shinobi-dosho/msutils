@@ -44,8 +44,11 @@ src/msutils/
   flagstats.py     TaQL flag statistics  (+ _flagrender.py, _flagplot.py)
   diagnostics.py   du(), check(), taql()
   convert.py       mapped MSv4 conversion and opt-in exact-native restoration
-  _native_preservation.py  versioned native bundle, reconstruction plan,
-                          temporary dask-ms writer and casacore verification
+  _native_preservation.py  versioned native bundle (manifest + Zarr payload),
+                          native_logical_id, reconstruction plan, temporary
+                          dask-ms writer and casacore verification
+  logical.py       msutils-logical-hash/v1: logical_id() of a Zarr v3 tree and
+                   its fail-closed reading policy -- the only implementation
   _tables.py       open_table / query context managers
   _compat.py       the deprecated summary()
   cli.py           click CLI
@@ -152,6 +155,22 @@ into a term the caller did not expect.
 - Times are **MJD seconds** everywhere in the model. MSv4 stores unix seconds; `_msv4._mjd_seconds` converts on the way in.
 - Bump `SCHEMA_VERSION` on any breaking JSON change.
 
+### Logical identity and exact-native bundles
+
+- **One hash, one implementation.** `logical.py` is the only code that
+  computes `msutils-logical-hash/v1`; the MSv4 binding, the native payload and
+  `native_logical_id`'s virtual tree all go through `_ArrayHasher` and
+  `_group_digest`. `docs/concepts/logical_identity.rst` is the normative spec
+  and `tests/test_logical.py` freezes its golden vectors -- a failing vector
+  means the ID changed, which needs a new algorithm version, not a new vector.
+- **Reading policy is not identity.** The preflight (codec allowlist,
+  ceilings, entry checks) may be widened without changing any ID; the digest
+  inputs may not.
+- **Never trust zarr's defaults for exact payloads.** `write_empty_chunks`
+  must stay `True` in `_PayloadSink`: zarr's fill-value elision is not bitwise
+  for complex signed zeros or NaN payloads. Capture re-hashes what it wrote
+  before publishing for the same reason.
+
 ### Readers and engines
 
 `msinfo(path, engine=...)` picks a reader. MSv2 defaults to `casacore` (TaQL). `_msv4.py` reads the MSv4 *schema* from three sources — `zarr` (plain xarray, no xradio), `xradio`, and `xarray-ms` (an MSv2 viewed through the MSv4 schema, no conversion) — all folding into the same `MSInfo`.
@@ -160,7 +179,7 @@ into a term the caller did not expect.
 
 ## Dependencies
 
-Base install is `numpy` + `python-casacore` + `click`, and it covers `msinfo`, all column ops, `subset`, flags, `flagstats` and diagnostics. Extras: `plots` (matplotlib), `average` (codex-africanus), `msv4` (xarray, zarr — reading), `xarray-ms`, `convert` (xradio — writing), `reconstruction` (arcae capability probes), and `exact-native` (pinned dask-ms, for bounded exact-native restoration). `tests/test_import.py` asserts in a subprocess that importing `msutils` pulls in none of them; keep optional imports inside functions.
+Base install is `numpy` + `python-casacore` + `click`, and it covers `msinfo`, all column ops, `subset`, flags, `flagstats` and diagnostics. Extras: `plots` (matplotlib), `average` (codex-africanus), `msv4` (xarray, zarr>=3.1 — reading, `logical_id`), `xarray-ms`, `convert` (xradio — writing), `reconstruction` (arcae capability probes), and `exact-native` (pinned dask-ms, for bounded exact-native restoration). `tests/test_import.py` asserts in a subprocess that importing `msutils` pulls in none of them; keep optional imports inside functions.
 
 `python-casacore` is a regular dependency (pip wheels bundle casacore), so `pip install .` is self-contained. Python ≥ 3.11.
 

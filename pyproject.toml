@@ -56,10 +56,13 @@ gains = [
     "msutils[msv4]",
 ]
 # Reading MSv4 processing sets. Plain xarray+zarr is enough -- xradio is
-# only needed to *write* one (the `convert` extra below).
+# only needed to *write* one (the `convert` extra below). The zarr floor is the
+# oldest release msutils.logical_id was verified against (3.1.6 and 3.3.0 are
+# locked); zarr 2.x cannot read the Zarr v3 hierarchies the logical hash and
+# the exact-native payload require.
 msv4 = [
     "xarray>=2025.0",
-    "zarr",
+    "zarr>=3.1",
 ]
 # Reading an MSv2 through the MSv4 schema, without converting it.
 xarray-ms = [
