@@ -43,7 +43,9 @@ src/msutils/
   flags.py         flag version backup/restore
   flagstats.py     TaQL flag statistics  (+ _flagrender.py, _flagplot.py)
   diagnostics.py   du(), check(), taql()
-  convert.py       MSv2 -> MSv4 via xradio
+  convert.py       mapped MSv4 conversion and opt-in exact-native restoration
+  _native_preservation.py  versioned native bundle, reconstruction plan,
+                          temporary dask-ms writer and casacore verification
   _tables.py       open_table / query context managers
   _compat.py       the deprecated summary()
   cli.py           click CLI
@@ -158,7 +160,7 @@ into a term the caller did not expect.
 
 ## Dependencies
 
-Base install is `numpy` + `python-casacore` + `click`, and it covers `msinfo`, all column ops, `subset`, flags, `flagstats` and diagnostics. Extras: `plots` (matplotlib), `average` (codex-africanus), `msv4` (xarray, zarr — reading), `xarray-ms`, `convert` (xradio — writing). `tests/test_import.py` asserts in a subprocess that importing `msutils` pulls in none of them; keep optional imports inside functions.
+Base install is `numpy` + `python-casacore` + `click`, and it covers `msinfo`, all column ops, `subset`, flags, `flagstats` and diagnostics. Extras: `plots` (matplotlib), `average` (codex-africanus), `msv4` (xarray, zarr — reading), `xarray-ms`, `convert` (xradio — writing), `reconstruction` (arcae capability probes), and `exact-native` (pinned dask-ms, for bounded exact-native restoration). `tests/test_import.py` asserts in a subprocess that importing `msutils` pulls in none of them; keep optional imports inside functions.
 
 `python-casacore` is a regular dependency (pip wheels bundle casacore), so `pip install .` is self-contained. Python ≥ 3.11.
 

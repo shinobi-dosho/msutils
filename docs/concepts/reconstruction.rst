@@ -1,9 +1,10 @@
-Arcae-native MSv2 reconstruction
-================================
+MSv2 reconstruction
+====================
 
-``msutils`` does not yet expose an MSv4-to-MSv2 writer.  The first development
-stage is a set of executable probes against arcae 0.5.4.  They establish which
-native table operations can support the bounded reconstruction design in
+``msutils`` exposes mapped MSv4-to-MSv2 materialisation and an opt-in,
+bounded exact-native profile. The earlier executable probes against arcae
+0.5.4 remain capability evidence for the longer-term writer. They establish
+which native table operations can support the reconstruction design in
 `issue #47 <https://github.com/shinobi-dosho/msutils/issues/47>`_, and which
 cases must still refuse.
 
@@ -42,10 +43,10 @@ The compatibility baseline is:
 Capability matrix
 -----------------
 
-``supported`` means the pinned executable probe demonstrates the primitive.
-It does not mean that a public reconstruction API exists yet. ``gated`` means
-the first reconstruction profile must refuse the case until a later probe and
-implementation demonstrate it.
+``supported`` means the pinned executable probe demonstrates the primitive;
+it does not by itself broaden the public exact-native profile. ``gated`` means
+that profile must refuse the case until a later probe and implementation
+demonstrate it.
 
 .. list-table::
    :header-rows: 1
@@ -118,10 +119,13 @@ must be reviewed rather than silently becoming broader.
 Dependency boundary
 -------------------
 
-The future reconstruction execution path is arcae-native and must not import
-``dask-ms`` or call ``python-casacore``.  The latter remains a base dependency
-of today's ``msutils`` for the existing TaQL readers, diagnostics and ordinary
-MS operations.  Removing that package-wide dependency is separate work.
+The ``exact-native`` extra currently pins dask-ms 0.2.32 as a temporary,
+established writer backend. Capture and the mandatory independent read-back
+verification use python-casacore, already a base dependency of ``msutils``.
+The reconstruction plan and preservation bundle remain backend-neutral so the
+writer can move to xarray-ms once its MSv2 writing support is ready; exact-mode
+semantics must not depend on dask-ms-specific objects.
 
-The independent test oracle may use python-casacore to verify native types and
-values.  It is never a production fallback.
+The separate ``reconstruction`` extra pins arcae only for the Phase 0
+capability probes above. Installing it does not select the public exact-native
+writer.

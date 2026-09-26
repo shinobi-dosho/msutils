@@ -70,6 +70,12 @@ xarray-ms = [
 reconstruction = [
     "arcae==0.5.4",
 ]
+# Temporary exact-native writer; intentionally pinned to the version probed
+# by the independent round-trip experiment. Kept out of the base install.
+exact-native = [
+    "dask-ms==0.2.32",
+    "msutils[msv4]",
+]
 # msutils.convert: writing MSv2 -> MSv4 processing sets.
 #
 # `ipython` is not ours: xradio pulls in `toolviper`, whose
@@ -83,7 +89,7 @@ convert = [
     "ipython",
 ]
 all = [
-    "msutils[plots,average,gains,msv4,xarray-ms,reconstruction,convert]",
+    "msutils[plots,average,gains,msv4,xarray-ms,reconstruction,exact-native,convert]",
 ]
 
 [dependency-groups]
