@@ -229,8 +229,11 @@ Cost
 ~~~~
 
 Planning reads the whole payload once and the whole MSv4 tree once. The
-writer reads the payload again; verification reads the target once and
-re-reads the payload only to name a failure. Capture and
+writer reads the payload again. On success, verification reads the target
+once. Only when a column's digest mismatches does it read more: it re-reads
+that column of the payload to tell a payload changed after planning from a
+bad write, and then streams that column of both the target and the payload
+again to name the first differing row. Capture and
 :func:`~msutils.native_logical_id` hold read locks while hashing every file
 of the source MS twice (before and after, to detect concurrent writers) and
 reading every defined cell once.
@@ -250,6 +253,16 @@ store that recorded it at capture -- should pass it::
 
 A mismatch with the bundle's verified ID refuses with ``native-id-mismatch``
 before anything is written.
+
+Untrusted bundles
+~~~~~~~~~~~~~~~~~
+
+Planning or verifying a bundle, or an MSv4 tree, from an untrusted source
+can exhaust memory rather than refuse. A variable-length string chunk
+cannot be sized before it is decoded: a small zstd-compressed chunk can
+expand into a very large amount of memory. The ceilings on elements per
+chunk and on chunk file size do not bound the decoded size of the strings
+themselves. See :doc:`logical_identity`.
 
 Version 1 bundles
 ~~~~~~~~~~~~~~~~~

@@ -324,9 +324,12 @@ tree and the record of its ID can make them agree.
 
 Residual risks:
 
-* A ``string`` chunk can decompress into much more memory than its file
-  size suggests; the element ceiling and the file-size ceiling bound it, but
-  a full fix needs a bound on zstd output.
+* **Hashing an untrusted tree can exhaust memory rather than refuse.** The
+  decoded size of a variable-length ``string`` chunk cannot be known before
+  it is decoded, and a small zstd-compressed chunk can expand into a very
+  large amount of memory. The 2\ :sup:`24`-element and file-size ceilings do
+  not bound the length of the strings themselves. Fixing this needs a bound
+  on zstd output and is not done.
 * The preflight walk and the reads are not atomic. A local process could
   swap in a symlink between them; zarr's ``LocalStore`` does not open with
   ``O_NOFOLLOW``. The trees are assumed to be local and owned by the caller;

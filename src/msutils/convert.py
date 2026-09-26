@@ -177,8 +177,10 @@ def verify_native_preservation(msv4: str, bundle: str) -> NativePreservationIds:
     bundle version and structure, the payload's reading policy and layout,
     every column digest, and the recomputed payload, native and MSv4 logical
     IDs. Returns those IDs; refuses with :class:`NativePreservationRefusal`.
-    Costs one full read of the payload and one of the MSv4 tree. Needs
-    ``msutils[msv4]`` (zarr).
+    Costs one full read of the payload and one of the MSv4 tree. A string
+    chunk's decoded size cannot be bounded in advance, so an untrusted bundle
+    or tree can exhaust memory rather than refuse. Needs ``msutils[msv4]``
+    (zarr).
     """
     from ._native_preservation import verify_native_preservation as verify
 

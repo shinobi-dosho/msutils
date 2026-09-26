@@ -1104,7 +1104,9 @@ def verify_native_preservation(
     structure and version, the payload's reading policy and structure, every
     payload column digest, and the recomputed payload, native and MSv4
     logical IDs -- without writing anything. Refusals are
-    :class:`NativePreservationRefusal`. Cost: one full read of the payload
+    :class:`NativePreservationRefusal`. A string payload chunk's decoded size
+    cannot be bounded in advance, so an untrusted bundle can exhaust memory
+    rather than refuse. Cost: one full read of the payload
     and one of the MSv4 tree.
     """
     plan = plan_reconstruction(msv4, bundle)
@@ -1523,7 +1525,12 @@ def _same_cell(actual: np.ndarray, expected: np.ndarray) -> bool:
 def _verify_column(
     tab: Any, plan: ReconstructionPlan, item: dict[str, Any], col: dict[str, Any], pool: _Pool
 ) -> str:
-    """Digest a target column with the capture cast and compare it with the plan."""
+    """Digest a target column with the capture cast and compare it with the plan.
+
+    On success the target column is read once. Only on a mismatch is the
+    payload column re-read (to tell a post-planning payload change from a bad
+    write) and then both columns streamed again to name the first bad row.
+    """
     table_id, name, tag = item["id"], col["name"], col["dtype"]
     shape, rows = tuple(col["shape"]), item["rows"]
     batch = _batch_rows([col], rows)

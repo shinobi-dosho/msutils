@@ -1036,6 +1036,11 @@ def logical_id(zarr_root: str | os.PathLike, *, workers: int | None = None) -> s
     and dtypes, stale consolidated metadata and chunks above the
     decoded-size ceiling. Needs ``msutils[msv4]`` (zarr).
 
+    Not bounded: the decoded size of variable-length string chunks cannot be
+    known before decoding, and a small compressed chunk can expand into a
+    very large amount of memory. Hashing an untrusted tree can therefore
+    exhaust memory instead of refusing.
+
     Args:
         zarr_root: Root group of the hierarchy (a local directory).
         workers: Threads computing block digests (default ``min(8, cpus)``).
