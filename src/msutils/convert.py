@@ -54,6 +54,7 @@ def to_msv2(
     rowchunk: int | None = None,
     fidelity: str = "mapped",
     preservation: str | None = None,
+    expected_native_logical_id: str | None = None,
 ) -> MSInfo:
     """Materialise a mapped MSv2 or restore a native preservation bundle.
 
@@ -84,6 +85,12 @@ def to_msv2(
             format is ``msutils-native-preservation/v2``, and bundles written
             before that are refused with ``bundle-version``.
         preservation: Bundle from :func:`capture_native_preservation`.
+        expected_native_logical_id: Exact mode only. A native logical ID the
+            caller holds independently of the bundle (for example from its
+            own state record); restoration refuses with
+            ``native-id-mismatch`` before writing if the bundle's verified ID
+            differs. Pass it whenever you have it: a manifest re-edited
+            consistently with a tampered payload is otherwise undetectable.
     """
     if fidelity == "exact-native-v1":
         if preservation is None:
@@ -94,11 +101,18 @@ def to_msv2(
             raise ValueError("weight_spectrum and rowchunk options apply only to mapped fidelity")
         from ._native_preservation import materialize_exact_native
 
-        return materialize_exact_native(msv4, outpath, preservation)
+        return materialize_exact_native(
+            msv4,
+            outpath,
+            preservation,
+            expected_native_logical_id=expected_native_logical_id,
+        )
     if fidelity != "mapped":
         raise ValueError(f"unknown fidelity mode {fidelity!r}")
-    if preservation is not None:
-        raise ValueError("preservation requires fidelity='exact-native-v1'")
+    if preservation is not None or expected_native_logical_id is not None:
+        raise ValueError(
+            "preservation and expected_native_logical_id require fidelity='exact-native-v1'"
+        )
     weight_spectrum = True if weight_spectrum is None else weight_spectrum
     rowchunk = 64 if rowchunk is None else rowchunk
     from ._msv4convert import to_msv2 as materialise

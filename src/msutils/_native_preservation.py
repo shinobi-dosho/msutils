@@ -1679,16 +1679,33 @@ def materialize_exact_native(
     preservation: str | os.PathLike,
     *,
     writer=None,
+    expected_native_logical_id: str | None = None,
 ):
     """Publish a fresh MSv2 only after complete independent native verification.
 
     Existing destinations are refused, even when mapped mode permits overwrite:
     a single rename can then publish the verified private table atomically.
+
+    ``expected_native_logical_id`` binds the restoration to a native logical
+    ID the caller holds independently of the bundle: a mismatch with the
+    bundle's verified ID refuses with ``native-id-mismatch`` before anything
+    is written. Without it, a manifest re-edited consistently with a tampered
+    payload is outside what the bundle alone can detect.
     """
+    if expected_native_logical_id is not None and not isinstance(expected_native_logical_id, str):
+        raise TypeError("expected_native_logical_id must be a string")
     destination = Path(outpath)
     if destination.exists() or destination.is_symlink():
         raise FileExistsError(destination)
     plan = plan_reconstruction(msv4, preservation)
+    if (
+        expected_native_logical_id is not None
+        and plan.native_logical_id != expected_native_logical_id
+    ):
+        raise NativePreservationRefusal(
+            "native-id-mismatch",
+            f"bundle restores {plan.native_logical_id}, expected {expected_native_logical_id}",
+        )
     writer = DaskMsWriter() if writer is None else writer
     destination.parent.mkdir(parents=True, exist_ok=True)
     stage_root = Path(tempfile.mkdtemp(prefix=f".{destination.name}.", dir=destination.parent))

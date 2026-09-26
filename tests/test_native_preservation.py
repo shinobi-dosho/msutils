@@ -668,6 +668,51 @@ def test_plan_refuses_records_verification_would_reject(zarr_lib, tmp_path, dama
     assert not list(tmp_path.glob(".target.ms.*"))
 
 
+def test_expected_native_id_mismatch_refuses_before_writing(zarr_lib, tmp_path):
+    source, state = _source(tmp_path)
+    bundle = capture_native_preservation(source, state, tmp_path / "bundle")
+    recorded = _manifest(bundle)["native_logical_id"]
+    target = tmp_path / "target.ms"
+
+    class RecordingWriter:
+        called = False
+
+        def write(self, plan, destination):
+            RecordingWriter.called = True
+
+    refusal = _refusal(
+        "native-id-mismatch",
+        materialize_exact_native,
+        state,
+        target,
+        bundle,
+        writer=RecordingWriter(),
+        expected_native_logical_id=_flip(recorded),
+    )
+    assert recorded in refusal.reason
+    assert not RecordingWriter.called
+    assert not target.exists()
+    assert not list(tmp_path.glob(".target.ms.*"))
+    with pytest.raises(NativePreservationRefusal, match="native-id-mismatch"):
+        to_msv2(
+            str(state),
+            str(target),
+            fidelity="exact-native-v1",
+            preservation=str(bundle),
+            expected_native_logical_id=_flip(recorded),
+        )
+    assert not target.exists()
+
+
+def test_expected_native_id_is_exact_mode_only(tmp_path):
+    with pytest.raises(ValueError, match="expected_native_logical_id"):
+        to_msv2(
+            str(tmp_path / "state.zarr"),
+            str(tmp_path / "target.ms"),
+            expected_native_logical_id="msutils-logical-hash/v1:" + "0" * 64,
+        )
+
+
 def test_plan_refuses_symlink_inside_payload(zarr_lib, tmp_path):
     source, state = _source(tmp_path)
     bundle = capture_native_preservation(source, state, tmp_path / "bundle")
@@ -819,7 +864,13 @@ def test_daskms_exact_native_roundtrip(zarr_lib, daskms, tmp_path):
         tab.putinfo(original_info)
     bundle = capture_native_preservation(source, state, tmp_path / "bundle")
     target = tmp_path / "target.ms"
-    info = to_msv2(str(state), str(target), fidelity="exact-native-v1", preservation=str(bundle))
+    info = to_msv2(
+        str(state),
+        str(target),
+        fidelity="exact-native-v1",
+        preservation=str(bundle),
+        expected_native_logical_id=native_logical_id(source),
+    )
     assert info.nrows == 1
     with table(str(target), ack=False) as tab:
         assert str(target / "ANTENNA") in tab.getkeyword("ANTENNA")

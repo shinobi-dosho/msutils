@@ -235,6 +235,22 @@ re-reads the payload only to name a failure. Capture and
 of the source MS twice (before and after, to detect concurrent writers) and
 reading every defined cell once.
 
+Binding to an independently held ID
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The bundle checks itself: its payload against its manifest, and its native
+ID against both. A manifest re-edited *consistently* with a tampered payload
+therefore passes, which is outside this integrity check's threat model.
+A caller that holds the native logical ID independently -- such as a state
+store that recorded it at capture -- should pass it::
+
+    to_msv2("state.zarr", "restored.ms", fidelity="exact-native-v1",
+            preservation="state.native",
+            expected_native_logical_id=recorded_id)
+
+A mismatch with the bundle's verified ID refuses with ``native-id-mismatch``
+before anything is written.
+
 Version 1 bundles
 ~~~~~~~~~~~~~~~~~
 

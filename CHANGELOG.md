@@ -35,6 +35,9 @@
 - `msutils.verify_native_preservation()`: every check restoration makes
   before writing, returning the bundle's three IDs as
   `NativePreservationIds`.
+- `to_msv2(..., expected_native_logical_id=...)`: bind an exact-native
+  restoration to a native logical ID held independently of the bundle;
+  a mismatch refuses with `native-id-mismatch` before anything is written.
 - **`gainutils`**, a second console script for operations on calibration gain
   tables, and `msutils.gains` behind it. One format-neutral model
   (`GainTable`/`GainBlock`, dense over time/freq/antenna/correlation) that
