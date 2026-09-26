@@ -28,7 +28,15 @@ from ._ms import (
     verify_antpos,
 )
 from ._package import __version__
-from .convert import NativePreservationRefusal, capture_native_preservation, to_msv2, to_msv4
+from .convert import (
+    NativePreservationIds,
+    NativePreservationRefusal,
+    capture_native_preservation,
+    native_logical_id,
+    to_msv2,
+    to_msv4,
+    verify_native_preservation,
+)
 from .diagnostics import check, du, taql
 from .flags import flag_backup, flag_delete, flag_restore, flag_versions
 from .flagstats import flagstats
@@ -41,6 +49,7 @@ __all__ = [
     "STOKES_TYPES",
     "LogicalIdRefusal",
     "MSInfo",
+    "NativePreservationIds",
     "NativePreservationRefusal",
     "__version__",
     # columns
@@ -67,6 +76,7 @@ __all__ = [
     "logical_id",
     # metadata
     "msinfo",
+    "native_logical_id",
     "renamecol",
     # datasets
     "subset",
@@ -77,4 +87,5 @@ __all__ = [
     "to_msv2",
     "to_msv4",
     "verify_antpos",
+    "verify_native_preservation",
 ]

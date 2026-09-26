@@ -6,10 +6,13 @@ overwrite handling, and returning an :class:`~msutils.info.MSInfo` for the
 result so the output can be inspected with the same code as the input.
 
 The mapped writer uses MSv4 arrays and derives MSv2 row weights. The opt-in
-exact-native writer restores the data-only native preservation bundle bound
-to a readable, hashed Zarr hierarchy; it does not consume MSv4 array values.
-Writing MSv4 needs ``msutils[convert]``. Exact-native restoration needs
-``msutils[exact-native]``.
+exact-native writer restores a data-only native preservation bundle (schema
+``msutils-native-preservation/v2``: a manifest plus a Zarr v3 payload) that
+is bound to the MSv4 tree by its :func:`~msutils.logical_id`, so a lossless
+rechunk or recompression of either tree keeps the pair valid. It does not
+consume MSv4 array values. Writing MSv4 needs ``msutils[convert]``.
+Exact-native restoration needs ``msutils[exact-native]``;
+:func:`native_logical_id` needs only the base install.
 """
 
 from __future__ import annotations
@@ -24,13 +27,16 @@ from .info import MSInfo, msinfo
 
 __all__ = [
     "PARTITION_KEYS",
+    "NativePreservationIds",
     "NativePreservationRefusal",
     "capture_native_preservation",
+    "native_logical_id",
     "to_msv2",
     "to_msv4",
+    "verify_native_preservation",
 ]
 
-from ._native_preservation import NativePreservationRefusal
+from ._native_preservation import NativePreservationIds, NativePreservationRefusal
 
 LOGGER = logging.getLogger(__name__)
 
@@ -71,8 +77,12 @@ def to_msv2(
             its derived channel-mean ``WEIGHT`` and ``SIGMA``.  Use
             ``"exact-native-v1"`` with a native preservation bundle to
             restore exact MSv2 rows and metadata from that bundle. The exact
-            writer checks the Zarr tree's readability and hashes but does not
-            consume its array values.
+            writer requires the Zarr tree's logical ID to equal the one the
+            bundle recorded (any lossless re-layout of either tree is
+            accepted) but does not consume its array values. The fidelity
+            name describes the guarantee, which is unchanged; the bundle
+            format is ``msutils-native-preservation/v2``, and bundles written
+            before that are refused with ``bundle-version``.
         preservation: Bundle from :func:`capture_native_preservation`.
     """
     if fidelity == "exact-native-v1":
@@ -102,15 +112,63 @@ def to_msv2(
     )
 
 
-def capture_native_preservation(source_ms: str, msv4: str, bundle: str, *, block_rows: int = 64):
+def capture_native_preservation(
+    source_ms: str, msv4: str, bundle: str, *, block_rows: int | None = None
+):
     """Capture a versioned, data-only exact-native bundle for one MSv4 state.
 
     Fixed-shape, fully-defined or wholly-undefined columns are supported;
     mixed undefinedness and ragged cells are refused before publication.
+
+    The bundle is a new directory holding ``manifest.json`` and
+    ``native.zarr``, a Zarr v3 hierarchy with one group per table and one
+    array per defined column in the column's exact casacore type. It records
+    three logical IDs -- the MSv4 tree's, the payload's and the native MS's
+    (:func:`native_logical_id`) -- and is read back and re-hashed before it
+    is published. Needs ``msutils[msv4]`` (zarr).
+
+    Args:
+        source_ms: The native MSv2 the MSv4 tree was exported from.
+        msv4: The MSv4 Zarr v3 tree to bind the bundle to.
+        bundle: New directory to create (refused if it exists).
+        block_rows: Rows per payload chunk. ``None`` (default) sizes chunks
+            to about 64 MiB decoded (4096 rows for strings). It is a storage
+            choice only: it does not change any logical ID, and a chunk above
+            2 GiB decoded is refused with ``chunk-size``.
     """
     from ._native_preservation import capture_native_preservation as capture
 
     return capture(source_ms, msv4, bundle, block_rows=block_rows)
+
+
+def native_logical_id(ms: str) -> str:
+    """Native logical ID of a live MSv2 under the exact-native profile.
+
+    Equal to the ``native_logical_id`` of a bundle captured from ``ms`` and to
+    that of an MS faithfully restored from such a bundle, so it re-validates
+    a materialised MS against the state it came from. Refuses content outside
+    the profile exactly as :func:`capture_native_preservation` does. Needs
+    only the base install; holds read locks while the MS's files are hashed
+    twice (to detect concurrent writers) and every defined cell is read once.
+    """
+    from ._native_preservation import native_logical_id as native
+
+    return native(ms)
+
+
+def verify_native_preservation(msv4: str, bundle: str) -> NativePreservationIds:
+    """Check a preservation bundle against its MSv4 tree without writing anything.
+
+    Performs every check exact-native restoration performs before writing:
+    bundle version and structure, the payload's reading policy and layout,
+    every column digest, and the recomputed payload, native and MSv4 logical
+    IDs. Returns those IDs; refuses with :class:`NativePreservationRefusal`.
+    Costs one full read of the payload and one of the MSv4 tree. Needs
+    ``msutils[msv4]`` (zarr).
+    """
+    from ._native_preservation import verify_native_preservation as verify
+
+    return verify(msv4, bundle)
 
 
 def to_msv4(

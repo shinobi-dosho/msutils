@@ -65,12 +65,22 @@ Format conversion
 -----------------
 
 .. automodule:: msutils.convert
-   :members: to_msv4, PARTITION_KEYS
+   :members: to_msv4, to_msv2, PARTITION_KEYS
 
-Logical identity
-----------------
+Exact-native preservation and logical identity
+----------------------------------------------
 
-See :doc:`../concepts/logical_identity`.
+See :doc:`../concepts/reconstruction` and :doc:`../concepts/logical_identity`.
+
+.. autofunction:: msutils.convert.capture_native_preservation
+
+.. autofunction:: msutils.convert.native_logical_id
+
+.. autofunction:: msutils.convert.verify_native_preservation
+
+.. autoclass:: msutils._native_preservation.NativePreservationIds
+
+.. autoclass:: msutils._native_preservation.NativePreservationRefusal
 
 .. automodule:: msutils.logical
    :members: logical_id, LogicalIdRefusal, LOGICAL_HASH, BLOCK_ELEMENTS
