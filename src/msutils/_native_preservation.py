@@ -62,6 +62,7 @@ from .logical import (
     _format_id,
     _Group,
     _group_digest,
+    _no_duplicates,
     _Pool,
     _pool,
     _tree_digests,
@@ -1249,7 +1250,9 @@ def _plan_reconstruction(msv4: str | os.PathLike, bundle: str | os.PathLike) -> 
         or manifest_path.stat().st_size > _MAX_MANIFEST_BYTES
     ):
         raise NativePreservationRefusal("bundle-manifest", "manifest missing, linked or oversized")
-    manifest = json.loads(manifest_path.read_bytes())
+    # The same duplicate-key refusal logical.py applies to zarr.json; the
+    # ValueError surfaces as bundle-invalid through plan_reconstruction.
+    manifest = json.loads(manifest_path.read_bytes(), object_pairs_hook=_no_duplicates)
     if not isinstance(manifest, dict):
         raise NativePreservationRefusal("bundle-manifest", "manifest must be an object")
     _check_manifest_header(manifest, root)
@@ -1372,6 +1375,12 @@ def _plan_reconstruction(msv4: str | os.PathLike, bundle: str | os.PathLike) -> 
                 table=item["id"],
             )
         _check_columns(item, desc)
+    # The MSv4 tree is the caller's input and the likeliest thing to have
+    # changed since capture; refuse on it before paying for the payload read.
+    msv4_digests = _logical_or_refuse(Path(msv4).resolve(strict=True), "msv4")
+    _require_array(msv4_digests)
+    if msv4_digests.root_id != manifest["msv4"]["logical_id"]:
+        raise NativePreservationRefusal("zarr-changed", "MSv4 logical content differs from capture")
     payload = root / _PAYLOAD
     stored = _logical_or_refuse(
         payload, "payload", check=lambda tree: _check_payload_structure(tree, tables)
@@ -1395,10 +1404,6 @@ def _plan_reconstruction(msv4: str | os.PathLike, bundle: str | os.PathLike) -> 
     native_id = _native_tree_id(tables)
     if native_id != manifest["native_logical_id"]:
         raise NativePreservationRefusal("bundle-integrity", "native logical ID differs")
-    msv4_digests = _logical_or_refuse(Path(msv4).resolve(strict=True), "msv4")
-    _require_array(msv4_digests)
-    if msv4_digests.root_id != manifest["msv4"]["logical_id"]:
-        raise NativePreservationRefusal("zarr-changed", "MSv4 logical content differs from capture")
     return ReconstructionPlan(
         bundle=root,
         payload=payload,

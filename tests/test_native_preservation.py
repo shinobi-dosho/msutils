@@ -135,6 +135,25 @@ def test_native_logical_id_shares_the_capture_refusals(tmp_path, case):
     assert (refusal.table, refusal.column, refusal.row) == ("MAIN", "CUSTOM_VARIABLE", row)
 
 
+def test_native_logical_id_accepts_a_uniform_variable_column(tmp_path, monkeypatch):
+    """A non-FixedShape column whose cells all share one shape is accepted.
+
+    getcolshapestring reports one shape string per row for such a column, so
+    _cell_shape takes its full per-row scan (a FixedShape column reports a
+    single string and skips it); a small _SHAPE_ROWS forces several batches.
+    The dtype-matrix restoration test covers the same path with the optional
+    stacks -- this pins it on the base install.
+    """
+    monkeypatch.setattr(native, "_SHAPE_ROWS", 3)
+    source = _ms(tmp_path, ntime=8)
+    with table(str(source), ack=False) as tab:
+        cells = {row: [1.0, 2.0, 3.0] for row in range(tab.nrows())}
+    _add_variable(source, cells)
+    identity = native_logical_id(source)
+    assert identity == native_logical_id(source)
+    assert identity.startswith("msutils-logical-hash/v1:")
+
+
 def _add_complete_row(tab):
     """Append a row, defining every cell that is defined in row 0.
 
@@ -633,6 +652,18 @@ def test_plan_refuses_malformed_or_edited_manifest(zarr_lib, tmp_path, damage):
     fn(manifest, main, col)
     _write_manifest(bundle, manifest)
     _refusal(code, plan_reconstruction, state, bundle)
+
+
+def test_plan_refuses_a_manifest_with_duplicate_keys(zarr_lib, tmp_path):
+    """logical.py refuses duplicate keys in zarr.json; the manifest parser
+    applies the same check rather than silently keeping the last value."""
+    source, state = _source(tmp_path)
+    bundle = capture_native_preservation(source, state, tmp_path / "bundle")
+    text = (bundle / "manifest.json").read_text()
+    pair = '"profile":"fixed-shape-defined-or-empty/v1"'
+    assert text.count(pair) == 1
+    (bundle / "manifest.json").write_text(text.replace(pair, f"{pair},{pair}"))
+    _refusal("bundle-invalid", plan_reconstruction, state, bundle)
 
 
 def _swap_first_columns(manifest):
