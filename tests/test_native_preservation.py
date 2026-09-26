@@ -635,6 +635,39 @@ def test_plan_refuses_malformed_or_edited_manifest(zarr_lib, tmp_path, damage):
     _refusal(code, plan_reconstruction, state, bundle)
 
 
+def _swap_first_columns(manifest):
+    columns = manifest["tables"][0]["columns"]
+    columns[0], columns[1] = columns[1], columns[0]
+
+
+RECORD_DAMAGE = {
+    "column-order": (_swap_first_columns, "column-coverage"),
+    "table-extra-key": (lambda m: m["tables"][0].update(block_rows=64), "bundle-table"),
+    "table-missing-key": (lambda m: m["tables"][1].pop("components"), "bundle-table"),
+    "column-extra-key": (
+        lambda m: m["tables"][0]["columns"][0].update(blocks=[]),
+        "bundle-column",
+    ),
+}
+
+
+@pytest.mark.parametrize("damage", sorted(RECORD_DAMAGE))
+def test_plan_refuses_records_verification_would_reject(zarr_lib, tmp_path, damage):
+    """Planning (and so verify_native_preservation) must refuse every record
+    shape that verification would only reject after writing the target."""
+    source, state = _source(tmp_path)
+    bundle = capture_native_preservation(source, state, tmp_path / "bundle")
+    manifest = _manifest(bundle)
+    fn, code = RECORD_DAMAGE[damage]
+    fn(manifest)
+    _write_manifest(bundle, manifest)
+    _refusal(code, verify_native_preservation, state, bundle)
+    target = tmp_path / "target.ms"
+    _refusal(code, materialize_exact_native, state, target, bundle)
+    assert not target.exists()
+    assert not list(tmp_path.glob(".target.ms.*"))
+
+
 def test_plan_refuses_symlink_inside_payload(zarr_lib, tmp_path):
     source, state = _source(tmp_path)
     bundle = capture_native_preservation(source, state, tmp_path / "bundle")

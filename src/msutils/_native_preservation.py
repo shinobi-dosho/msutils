@@ -97,6 +97,17 @@ _MANIFEST_KEYS = {
     "created_by",
 }
 _COLUMN_KEYS = {"name", "defined", "shape", "dtype", "digest"}
+_TABLE_KEYS = {
+    "id",
+    "rows",
+    "descriptor",
+    "info",
+    "managers",
+    "keywords",
+    "references",
+    "columns",
+    "components",
+}
 
 #: casacore ``valueType`` -> logical tag and Zarr ``data_type`` of the payload.
 #: Anything else (``ushort``, ``char``, records, tables) is refused before any
@@ -1258,6 +1269,12 @@ def _plan_reconstruction(msv4: str | os.PathLike, bundle: str | os.PathLike) -> 
     expected = []
     for item in tables:
         table_id = item["id"]
+        if set(item) != _TABLE_KEYS:
+            raise NativePreservationRefusal(
+                "bundle-table",
+                f"table record keys differ: {sorted(set(item) ^ _TABLE_KEYS)}",
+                table=table_id,
+            )
         if (
             not isinstance(item.get("keywords"), dict)
             or not isinstance(item.get("references"), dict)
@@ -1342,6 +1359,15 @@ def _plan_reconstruction(msv4: str | os.PathLike, bundle: str | os.PathLike) -> 
         } != set(column_names):
             raise NativePreservationRefusal(
                 "column-coverage", "descriptor/column mismatch", table=item["id"]
+            )
+        # The descriptor lists columns in colnames() order, and verification
+        # requires the target to match the records' order; refuse a reordered
+        # manifest here rather than after the target has been written.
+        if [name for name in desc if name != "_define_hypercolumn_"] != column_names:
+            raise NativePreservationRefusal(
+                "column-coverage",
+                "column records are not in descriptor (colnames) order",
+                table=item["id"],
             )
         _check_columns(item, desc)
     payload = root / _PAYLOAD
