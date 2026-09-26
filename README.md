@@ -56,6 +56,7 @@ pip install "msutils[plots]"           # + PNG summary plots (matplotlib)
 pip install "msutils[average]"         # + time/channel averaging (codex-africanus)
 pip install "msutils[msv4]"            # + read MSv4 processing sets (xarray, zarr)
 pip install "msutils[xarray-ms]"       # + read an MSv2 through the MSv4 schema
+pip install "msutils[reconstruction]"  # + experimental arcae reconstruction probes
 pip install "msutils[convert]"         # + write MSv2 -> MSv4 (xradio)
 pip install "msutils[all]"             # everything
 ```

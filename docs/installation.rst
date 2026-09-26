@@ -38,6 +38,9 @@ needs it:
    * - ``xarray-ms``
      - xarray-ms
      - reading an MSv2 through the MSv4 schema
+   * - ``reconstruction``
+     - arcae 0.5.4
+     - running the experimental MSv2 reconstruction capability probes
    * - ``convert``
      - xradio
      - writing MSv2 → MSv4
