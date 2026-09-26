@@ -1,13 +1,15 @@
-"""Convert between MSv2 Measurement Sets and MSv4 processing sets.
+"""Convert MSv2 to MSv4 and materialise a bounded MSv2 representation.
 
 A thin wrapper over :func:`xradio.measurement_set.convert_msv2_to_processing_set`
 -- xradio owns the conversion, this owns the ergonomics: argument validation,
 overwrite handling, and returning an :class:`~msutils.info.MSInfo` for the
 result so the output can be inspected with the same code as the input.
 
-Needs the ``convert`` extra (``pip install 'msutils[convert]'``). Note that
-*reading* an MSv4 set needs only ``msutils[msv4]`` (xarray + zarr); xradio is
-required for writing one.
+The mapped writer uses MSv4 arrays and derives MSv2 row weights. The opt-in
+exact-native writer restores the data-only native preservation bundle bound
+to a readable, hashed Zarr hierarchy; it does not consume MSv4 array values.
+Writing MSv4 needs ``msutils[convert]``. Exact-native restoration needs
+``msutils[exact-native]``.
 """
 
 from __future__ import annotations
@@ -20,7 +22,15 @@ from typing import Any
 
 from .info import MSInfo, msinfo
 
-__all__ = ["PARTITION_KEYS", "to_msv2", "to_msv4"]
+__all__ = [
+    "PARTITION_KEYS",
+    "NativePreservationRefusal",
+    "capture_native_preservation",
+    "to_msv2",
+    "to_msv4",
+]
+
+from ._native_preservation import NativePreservationRefusal
 
 LOGGER = logging.getLogger(__name__)
 
@@ -34,10 +44,12 @@ def to_msv2(
     outpath: str,
     *,
     overwrite: bool = False,
-    weight_spectrum: bool = True,
-    rowchunk: int = 64,
+    weight_spectrum: bool | None = None,
+    rowchunk: int | None = None,
+    fidelity: str = "mapped",
+    preservation: str | None = None,
 ) -> MSInfo:
-    """Materialise a new MSv2 from an MSv4 Zarr processing set.
+    """Materialise a mapped MSv2 or restore a native preservation bundle.
 
     This supports correlated-interferometer processing sets.  MSv4 content
     with no MSv2 equivalent is rejected rather than being silently omitted.
@@ -48,10 +60,37 @@ def to_msv2(
         msv4: Source MSv4 Zarr processing set.
         outpath: New MSv2 table to create.
         overwrite: Replace a pre-existing destination.
-        weight_spectrum: Write MSv4's per-channel weights as
-            ``WEIGHT_SPECTRUM``. MSv2 ``WEIGHT`` is always the channel mean.
-        rowchunk: Time samples loaded from each partition at a time.
+        weight_spectrum: In mapped mode, write MSv4's per-channel weights as
+            ``WEIGHT_SPECTRUM`` (default true). MSv2 ``WEIGHT`` is always the
+            channel mean. Not accepted in exact mode, even when explicitly
+            set to its mapped default.
+        rowchunk: In mapped mode, time samples loaded from each partition at
+            a time (default 64). Not accepted in exact mode, even when
+            explicitly set to its mapped default.
+        fidelity: ``"mapped"`` retains the MSv4 array conversion, including
+            its derived channel-mean ``WEIGHT`` and ``SIGMA``.  Use
+            ``"exact-native-v1"`` with a native preservation bundle to
+            restore exact MSv2 rows and metadata from that bundle. The exact
+            writer checks the Zarr tree's readability and hashes but does not
+            consume its array values.
+        preservation: Bundle from :func:`capture_native_preservation`.
     """
+    if fidelity == "exact-native-v1":
+        if preservation is None:
+            raise ValueError("exact-native-v1 requires preservation")
+        if overwrite:
+            raise ValueError("exact-native-v1 only publishes a fresh destination")
+        if weight_spectrum is not None or rowchunk is not None:
+            raise ValueError("weight_spectrum and rowchunk options apply only to mapped fidelity")
+        from ._native_preservation import materialize_exact_native
+
+        return materialize_exact_native(msv4, outpath, preservation)
+    if fidelity != "mapped":
+        raise ValueError(f"unknown fidelity mode {fidelity!r}")
+    if preservation is not None:
+        raise ValueError("preservation requires fidelity='exact-native-v1'")
+    weight_spectrum = True if weight_spectrum is None else weight_spectrum
+    rowchunk = 64 if rowchunk is None else rowchunk
     from ._msv4convert import to_msv2 as materialise
 
     return materialise(
@@ -61,6 +100,17 @@ def to_msv2(
         weight_spectrum=weight_spectrum,
         rowchunk=rowchunk,
     )
+
+
+def capture_native_preservation(source_ms: str, msv4: str, bundle: str, *, block_rows: int = 64):
+    """Capture a versioned, data-only exact-native bundle for one MSv4 state.
+
+    Fixed-shape, fully-defined or wholly-undefined columns are supported;
+    mixed undefinedness and ragged cells are refused before publication.
+    """
+    from ._native_preservation import capture_native_preservation as capture
+
+    return capture(source_ms, msv4, bundle, block_rows=block_rows)
 
 
 def to_msv4(

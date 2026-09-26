@@ -28,7 +28,7 @@ from ._ms import (
     verify_antpos,
 )
 from ._package import __version__
-from .convert import to_msv2, to_msv4
+from .convert import NativePreservationRefusal, capture_native_preservation, to_msv2, to_msv4
 from .diagnostics import check, du, taql
 from .flags import flag_backup, flag_delete, flag_restore, flag_versions
 from .flagstats import flagstats
@@ -38,11 +38,13 @@ from .subset import average, subset
 __all__ = [
     "STOKES_TYPES",
     "MSInfo",
+    "NativePreservationRefusal",
     "__version__",
     # columns
     "addcol",
     "addnoise",
     "average",
+    "capture_native_preservation",
     "check",
     "compute_vis_noise",
     "copycol",

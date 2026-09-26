@@ -74,3 +74,70 @@ Converting
 extra), validates its arguments, refuses to clobber an existing output, and
 returns an :class:`~msutils.MSInfo` for the result so the output can be
 inspected with the same code as the input.
+
+Materialising MSv2
+-------------------
+
+``to_msv2(msv4, outpath)`` uses the mapped MSv4 schema. It retains the
+existing convention: MSv2 ``WEIGHT`` is the per-channel mean, and ``SIGMA``
+is derived from that mean. It cannot restore native rows, subtables, column
+descriptors or keywords that an MSv4 export omitted.
+
+For exact native restoration, capture a preservation bundle while the source
+MSv2 still exists, then keep it with the exported Zarr state::
+
+    from msutils import capture_native_preservation, to_msv2
+
+    capture_native_preservation("source.ms", "state.zarr", "state.native")
+    to_msv2("state.zarr", "restored.ms", fidelity="exact-native-v1",
+             preservation="state.native")
+
+This opt-in path uses ``msutils[exact-native]`` (dask-ms 0.2.32). Its versioned
+bundle contains typed descriptors, managers, keywords, subtable relationships,
+row counts and fixed-shape native cells. In this first profile the native
+cells are preserved in full, so the bundle can be large. The exact writer
+restores those bundle payloads; it does not read the MSv4 visibility arrays
+into the target. It reads through and hashes the Zarr tree to check integrity,
+but this API does not prove that the tree was exported from the captured MSv2.
+Callers must establish that provenance during export. The bundle and Zarr
+together are the reusable state; a Zarr hierarchy alone is insufficient for
+exact native restoration.
+
+Capture and verification inspect every defined cell in Python, and capture
+also inventories and hashes the source tree before and after reading it. Both
+runtime and bundle size therefore scale with the complete native MS, not just
+its metadata; plan capacity and storage before using this mode on a large MS.
+
+The exact mode accepts fixed-shape columns whose cells are all defined or all
+undefined. It refuses mixed definedness, ragged cells, ambiguous empty typed
+keyword arrays, external table references and untested storage managers with
+a structured ``NativePreservationRefusal`` identifying the table, column and
+row where possible. The baseline experiment's ``CUSTOM_VARIABLE`` therefore
+still refuses. References must belong to the subtables named by the MAIN
+table, and table, column and keyword names must be identifiers (letters,
+digits and underscores, starting with a letter or underscore). Typed metadata
+arrays are limited to 64 MiB and eight dimensions. This profile does not
+discover nested referenced tables. A future
+native-cell adapter can widen that boundary.
+
+Reconstruction writes to a private sibling, reopens every table with
+python-casacore, checks native descriptors, keywords, managers, definedness
+and cell bytes, and publishes a new destination with an atomic no-replace
+rename. Any failure removes the private candidate. Exact mode refuses an
+existing output even if ``overwrite=True`` was supplied; mapped mode keeps
+its existing overwrite behavior. The mapped ``weight_spectrum`` and
+``rowchunk`` options are not accepted in exact mode. Atomic no-replace
+publication currently requires Linux ``renameat2`` with
+``RENAME_NOREPLACE`` support; unsupported systems refuse before publishing.
+
+Manager comparison preserves and checks the raw ``getdminfo()`` record except
+for ``StandardStMan.SPEC.IndexLength``. Casacore exposes that field as the
+serialized byte length of its bucket index, but recomputes it from physical
+index layout and write history instead of accepting it as reconstruction
+configuration. It can therefore differ between logically identical tables.
+Exact-native identity excludes only that derived field; storage-manager type,
+name, column bindings, bucket size, cache configuration and every other
+manager specification remain part of the equality gate. The unnormalised
+``IndexLength`` remains in the preservation bundle as physical-layout
+evidence. Byte-for-byte table-file fidelity would require preserving the
+original casacore files and is outside this data-only profile.

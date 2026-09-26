@@ -536,14 +536,36 @@ def convert(ms, outpath, partitions, no_pointing, overwrite):
 @cli.command("materialize")
 @click.argument("msv4")
 @click.argument("outpath")
-@click.option("--no-weight-spectrum", is_flag=True, help="Do not write WEIGHT_SPECTRUM.")
-@click.option("--rowchunk", type=click.IntRange(min=1), default=64, show_default=True)
+@click.option(
+    "--no-weight-spectrum",
+    is_flag=True,
+    default=None,
+    help="Mapped fidelity only: do not write WEIGHT_SPECTRUM.",
+)
+@click.option(
+    "--rowchunk",
+    type=click.IntRange(min=1),
+    default=None,
+    help="Mapped fidelity only: time samples per chunk (default: 64).",
+)
+@click.option(
+    "--fidelity",
+    type=click.Choice(["mapped", "exact-native-v1"]),
+    default="mapped",
+    show_default=True,
+)
+@click.option(
+    "--preservation",
+    type=click.Path(exists=True, file_okay=False),
+    help="Native preservation bundle required by exact-native-v1.",
+)
 @click.option("--overwrite", is_flag=True, help="Replace OUTPATH if it exists.")
-def materialize(msv4, outpath, no_weight_spectrum, rowchunk, overwrite):
+def materialize(msv4, outpath, no_weight_spectrum, rowchunk, fidelity, preservation, overwrite):
     """Materialise MSv4 Zarr at MSV4 as a fresh MSv2 at OUTPATH.
 
-    Needs the 'msv4' extra (xarray + zarr). Unsupported MSv4 content is
-    rejected rather than silently omitted.
+    Mapped fidelity needs the 'msv4' extra (xarray + zarr). Exact-native-v1
+    needs 'exact-native' (pinned dask-ms) and --preservation. Unsupported
+    content is rejected rather than silently omitted.
     """
     from .convert import to_msv2
 
@@ -552,10 +574,12 @@ def materialize(msv4, outpath, no_weight_spectrum, rowchunk, overwrite):
             msv4,
             outpath,
             overwrite=overwrite,
-            weight_spectrum=not no_weight_spectrum,
+            weight_spectrum=None if no_weight_spectrum is None else not no_weight_spectrum,
             rowchunk=rowchunk,
+            fidelity=fidelity,
+            preservation=preservation,
         )
-    except ImportError as exc:
+    except (ImportError, ValueError, FileExistsError) as exc:
         raise click.ClickException(str(exc)) from exc
     click.echo(info.render())
 

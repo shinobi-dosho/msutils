@@ -44,6 +44,9 @@ needs it:
    * - ``convert``
      - xradio
      - writing MSv2 → MSv4
+   * - ``exact-native``
+     - dask-ms 0.2.32, xarray, zarr
+     - bounded exact-native MSv4/Zarr → MSv2 restoration with a preservation bundle
 
 .. code-block:: console
 
