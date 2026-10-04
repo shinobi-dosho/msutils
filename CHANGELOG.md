@@ -4,6 +4,11 @@
 
 ### Added
 
+- An assessment of dask-ms 0.3.0a1 in the reconstruction documentation and
+  regression coverage for the writer's refusal of untested backend versions.
+  The `exact-native` dependency stays pinned to 0.2.32: the alpha's default
+  table concurrency exhausted file descriptors in the restoration checks,
+  and its arcae requirement conflicts with the reconstruction probe pin.
 - Correlation selection for `subset()` and `average()`: `corrs=["XX", "YY"]`
   or repeatable `--corr XX --corr YY` options keep names or zero-based indices
   in the requested order. Each polarization setup in use is resolved
