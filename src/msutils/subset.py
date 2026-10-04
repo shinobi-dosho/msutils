@@ -47,6 +47,7 @@ def subset(
     datacolumn: str = "DATA",
     reindex: bool = False,
     overwrite: bool = False,
+    corrs: Sequence[str | int] | None = None,
 ) -> str:
     """Write the selected rows of ``msname`` to a new MS at ``outms``.
 
@@ -70,6 +71,10 @@ def subset(
             so ids keep matching the parent MS. If reindexing fails, no output
             is left behind.
         overwrite: Replace ``outms`` if it exists.
+        corrs: Correlation names (e.g. ``["XX", "YY"]``) or zero-based
+            indices to keep, in the requested order. Resolved separately for
+            each polarization setup in use; missing correlations raise.
+            ``None`` or an empty sequence keeps all correlations.
 
     Returns:
         The path written.
@@ -92,12 +97,11 @@ def subset(
             datacolumn=datacolumn,
             reindex=reindex,
             overwrite=overwrite,
+            corrs=corrs,
         )
 
     info = msinfo(msname, level="meta")
     where = _selection(info, fields=fields, spws=spws, scans=scans, antennas=antennas, taql=taql)
-    _prepare_output(outms, overwrite)
-
     with open_table(msname) as tab:
         command = "SELECT FROM $1" + (" WHERE " + where if where else "")
         LOGGER.info("Subsetting %s -> %s (%s)", msname, outms, where or "all rows")
@@ -105,8 +109,18 @@ def subset(
             nrows = selection.nrows()
             if nrows == 0:
                 raise ValueError("selection matched no rows: {}".format(where or "all rows"))
-            with closing_table(selection.copy(outms, deep=True)):
-                pass
+            corr_indices = _resolve_corrs(info, selection, corrs)
+            _prepare_output(outms, overwrite)
+            if corr_indices:
+                try:
+                    _copy_correlations(selection, outms, info, corr_indices)
+                    _write_polarizations(outms, corr_indices)
+                except Exception:
+                    shutil.rmtree(outms, ignore_errors=True)
+                    raise
+            else:
+                with closing_table(selection.copy(outms, deep=True)):
+                    pass
 
     if reindex:
         _reindex_output(outms)
@@ -129,6 +143,7 @@ def average(
     reindex: bool = False,
     overwrite: bool = False,
     rowchunk: int = 100000,
+    corrs: Sequence[str | int] | None = None,
 ) -> str:
     """Time- and channel-average an MS into a new one.
 
@@ -149,6 +164,7 @@ def average(
         reindex: Renumber field and SPW ids from 0, as for :func:`subset`.
         overwrite: Replace ``outms`` if it exists.
         rowchunk: Rows read per iteration within a group.
+        corrs: Correlation names or zero-based indices, as for :func:`subset`.
 
     Returns:
         The path written.
@@ -167,8 +183,6 @@ def average(
 
     info = msinfo(msname, level="meta")
     where = _selection(info, fields=fields, spws=spws, scans=scans, antennas=antennas, taql=taql)
-    _prepare_output(outms, overwrite)
-
     with open_table(msname) as tab:
         if datacolumn not in tab.colnames():
             raise ValueError(f"{msname} has no column {datacolumn!r}")
@@ -176,8 +190,11 @@ def average(
         groups = _groups(tab, where)
         if not groups:
             raise ValueError("selection matched no rows: {}".format(where or "all rows"))
+        corr_indices = _resolve_corrs(info, tab, corrs, ddids={g[1] for g in groups})
+        _prepare_output(outms, overwrite)
 
         spw_of_ddid = {d.id: d.spw_id for d in info.data_descriptions}
+        pol_of_ddid = {d.id: d.pol_id for d in info.data_descriptions}
         averaged_spw: dict[int, tuple[np.ndarray, np.ndarray]] = {}
         blocks: list[dict[str, Any]] = []
 
@@ -212,6 +229,7 @@ def average(
                     time_bin,
                     chan_bin,
                     rowchunk,
+                    corr_indices.get(pol_of_ddid[ddid]),
                 )
 
             block.update(field_id=field_id, ddid=ddid, scan=scan)
@@ -220,7 +238,13 @@ def average(
                 spw_of_ddid[ddid], (block.pop("chan_freq"), block.pop("chan_width"))
             )
 
-        _write_output(msname, outms, info, blocks, averaged_spw, optional, datacolumn)
+        try:
+            _write_output(msname, outms, info, blocks, averaged_spw, optional, datacolumn)
+            if corr_indices:
+                _write_polarizations(outms, corr_indices)
+        except Exception:
+            shutil.rmtree(outms, ignore_errors=True)
+            raise
 
     if reindex:
         _reindex_output(outms, rowchunk=rowchunk)
@@ -235,6 +259,145 @@ def average(
         chan_bin,
     )
     return outms
+
+
+# --------------------------------------------------------------------------
+# correlation selection
+
+# In python-casacore these MS columns have correlation as their last axis;
+# FLAG_CATEGORY additionally has category and channel axes before it.
+_CORR_COLUMNS = frozenset(
+    (
+        "DATA",
+        "MODEL_DATA",
+        "CORRECTED_DATA",
+        "FLOAT_DATA",
+        "LAG_DATA",
+        "FLAG",
+        "FLAG_CATEGORY",
+        "WEIGHT",
+        "SIGMA",
+        "WEIGHT_SPECTRUM",
+        "SIGMA_SPECTRUM",
+    )
+)
+
+
+def _resolve_corrs(info, tab, corrs, *, ddids=None) -> dict[int, list[int]]:
+    """Resolve a common requested order against each polarization in use."""
+    if not corrs:
+        return {}
+    if ddids is None:
+        ddids = _distinct(tab, "DATA_DESC_ID")
+    result = {}
+    for ddid in sorted(ddids):
+        pol_id = info.data_descriptions[ddid].pol_id
+        if pol_id in result:
+            continue
+        pol = info.polarizations[pol_id]
+        indices = []
+        for item in corrs:
+            if isinstance(item, str) and not item.lstrip("-").isdigit():
+                name = item.upper()
+                if name not in pol.corr_labels:
+                    raise ValueError(
+                        f"unknown correlation {item!r} in polarization {pol_id}; "
+                        f"have {pol.corr_labels}"
+                    )
+                index = pol.corr_labels.index(name)
+            else:
+                index = int(item)
+                if not 0 <= index < pol.num_corr:
+                    raise ValueError(
+                        f"unknown correlation index {index} in polarization {pol_id}; "
+                        f"have indices 0..{pol.num_corr - 1}"
+                    )
+            if index in indices:
+                raise ValueError(f"duplicate correlation {item!r} in polarization {pol_id}")
+            indices.append(index)
+        result[pol_id] = indices
+    return result
+
+
+def _read_corrs(tab, column, indices, row0=0, nrows=-1):
+    """Read only requested correlations, retaining the array's last axis."""
+    if indices is None:
+        return tab.getcol(column, row0, nrows)
+    ndim = tab.getcoldesc(column)["ndim"]
+    if ndim <= 0:
+        ndim = np.asarray(tab.getcell(column, row0)).ndim
+    return np.concatenate(
+        [
+            tab.getcolslice(
+                column,
+                [0] * (ndim - 1) + [i],
+                [-1] * (ndim - 1) + [i],
+                startrow=row0,
+                nrow=nrows,
+            )
+            for i in indices
+        ],
+        axis=-1,
+    )
+
+
+def _copy_correlations(selection, outms, info, corr_indices, rowchunk=100000):
+    """Copy ordinary columns, then write sliced arrays in bounded DDID batches."""
+    columns = [c for c in selection.colnames() if c in _CORR_COLUMNS]
+    ordinary = [c for c in selection.colnames() if c not in _CORR_COLUMNS]
+    with (
+        query("SELECT " + ",".join(ordinary) + " FROM $1", [selection]) as rows,
+        closing_table(rows.copy(outms, deep=True)),
+    ):
+        pass
+    with open_table(outms, readonly=False) as out:
+        for column in columns:
+            desc = selection.getcoldesc(column)
+            if "shape" in desc:
+                desc["shape"] = list(desc["shape"])
+                desc["shape"][-1] = len(next(iter(corr_indices.values())))
+            # A source may use a tiled or virtual manager with the original
+            # shape. Store independent sliced values in a normal manager.
+            desc["dataManagerType"] = "StandardStMan"
+            desc["dataManagerGroup"] = "CorrSelection_" + column
+            out.addcols({column: desc})
+        for ddid in _distinct(selection, "DATA_DESC_ID"):
+            indices = corr_indices[info.data_descriptions[ddid].pol_id]
+            with (
+                query(f"SELECT FROM $1 WHERE DATA_DESC_ID=={ddid}", [selection]) as rows,
+                closing_table(out.selectrows(rows.rownumbers(selection))) as target,
+            ):
+                for row0 in range(0, rows.nrows(), rowchunk):
+                    count = min(rowchunk, rows.nrows() - row0)
+                    for column in columns:
+                        try:
+                            values = _read_corrs(rows, column, indices, row0, count)
+                        except RuntimeError:
+                            # Optional arrays can be undefined or vary in
+                            # shape (notably FLAG_CATEGORY). Preserve that.
+                            for row in range(row0, row0 + count):
+                                if rows.iscelldefined(column, row):
+                                    target.putcell(
+                                        column,
+                                        row,
+                                        np.take(rows.getcell(column, row), indices, axis=-1),
+                                    )
+                        else:
+                            target.putcol(column, values, row0, count)
+
+
+def _write_polarizations(outms, corr_indices):
+    """Rewrite only the polarization rows referenced by the selected data."""
+    with open_table(outms + "::POLARIZATION", readonly=False) as tab:
+        for pol_id, indices in corr_indices.items():
+            types = tab.getcell("CORR_TYPE", pol_id)
+            products = tab.getcell("CORR_PRODUCT", pol_id)
+            # python-casacore reverses the MS specification's (2, NUM_CORR)
+            # axes. Accept legacy transposed cells when unambiguous.
+            axis = 0 if products.shape == (len(types), 2) else -1
+            tab.putcell("NUM_CORR", pol_id, len(indices))
+            tab.putcell("CORR_TYPE", pol_id, np.take(types, indices))
+            tab.putcell("CORR_PRODUCT", pol_id, np.take(products, indices, axis=axis))
 
 
 # --------------------------------------------------------------------------
@@ -292,9 +455,10 @@ def _average_group(
     time_bin,
     chan_bin,
     rowchunk,
+    corrs=None,
 ) -> dict[str, Any]:
     """Average one (field, ddid, scan) group and return its output arrays."""
-    flag, flag_row = _reconcile_flags(rows.getcol("FLAG"), rows.getcol("FLAG_ROW"))
+    flag, flag_row = _reconcile_flags(_read_corrs(rows, "FLAG", corrs), rows.getcol("FLAG_ROW"))
 
     kwargs = {
         "time": rows.getcol("TIME"),
@@ -305,19 +469,19 @@ def _average_group(
         "exposure": rows.getcol("EXPOSURE"),
         "flag_row": flag_row,
         "uvw": rows.getcol("UVW"),
-        "weight": rows.getcol("WEIGHT"),
-        "sigma": rows.getcol("SIGMA"),
+        "weight": _read_corrs(rows, "WEIGHT", corrs),
+        "sigma": _read_corrs(rows, "SIGMA", corrs),
         "chan_freq": chan_freq,
         "chan_width": chan_width,
         "effective_bw": chan_width,
         "resolution": chan_width,
-        "visibilities": rows.getcol(datacolumn),
+        "visibilities": _read_corrs(rows, datacolumn, corrs),
         "flag": flag,
         "time_bin_secs": float(time_bin),
         "chan_bin_size": int(chan_bin),
     }
     for column in optional:
-        kwargs[column.lower()] = rows.getcol(column)
+        kwargs[column.lower()] = _read_corrs(rows, column, corrs)
 
     result = time_and_channel(**kwargs)
 
@@ -351,13 +515,12 @@ def _write_output(
     if not blocks:
         raise ValueError("nothing to write: no group produced any rows")
 
-    ncorr = blocks[0]["visibilities"].shape[2]
-    nchan = {b["visibilities"].shape[1] for b in blocks}
-    # A fixed cell shape needs one channel count; mixed-width SPWs get a
-    # variable-shaped column instead.
+    shapes = {b["visibilities"].shape[1:] for b in blocks}
+    # A fixed cell shape needs one channel/correlation count; mixed setups
+    # get a variable-shaped column instead.
     coldescs = []
-    if len(nchan) == 1:
-        shape = [nchan.pop(), ncorr]
+    if len(shapes) == 1:
+        shape = list(shapes.pop())
         coldescs.append(makearrcoldesc(datacolumn, 0 + 0j, shape=shape, valuetype="complex"))
         for column in optional:
             coldescs.append(makearrcoldesc(column, 0.0, shape=shape, valuetype="float"))
@@ -365,7 +528,8 @@ def _write_output(
         coldescs.append(makearrcoldesc(datacolumn, 0 + 0j, ndim=2, valuetype="complex"))
         for column in optional:
             coldescs.append(makearrcoldesc(column, 0.0, ndim=2, valuetype="float"))
-    default_ms(outms, maketabdesc(coldescs))
+    with closing_table(default_ms(outms, maketabdesc(coldescs))):
+        pass
 
     # Subtables that averaging does not change are copied verbatim.
     for name in (
