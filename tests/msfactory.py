@@ -172,8 +172,8 @@ def _write_polarization(path, corr_type):
         tab.addrows(1)
         tab.putcell("NUM_CORR", 0, ncorr)
         tab.putcell("CORR_TYPE", 0, np.array(corr_type))
-        # feed indices per correlation, shape (2, ncorr)
-        products = np.array([[c // 2 % 2, c % 2] for c in range(ncorr)]).T
+        # python-casacore reverses the MS spec's (2, ncorr) axes.
+        products = np.array([[c // 2 % 2, c % 2] for c in range(ncorr)])
         tab.putcell("CORR_PRODUCT", 0, products)
 
 
