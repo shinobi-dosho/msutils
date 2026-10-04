@@ -129,6 +129,7 @@ msutils.addnoise("obs.ms", column="MODEL_DATA", sefd=551)
 
 # datasets
 msutils.subset("obs.ms", "target.ms", fields=["DEEP_2"], spws=[0])
+msutils.subset("obs.ms", "parallel.ms", corrs=["XX", "YY"])  # names or zero-based indices
 msutils.subset("obs.ms", "target.ms", fields=["DEEP_2"], chan_bin=4)  # select + average
 msutils.average("obs.ms", "avg.ms", time_bin=8.0, chan_bin=4)  # [average]
 
@@ -149,6 +150,11 @@ msutils.taql("SELECT DISTINCT FIELD_ID FROM $1", "obs.ms")
 pass rather than two (it hands off to `average`, so that needs the `average`
 extra).
 
+Both functions accept `corrs=["XX", "YY"]` (or repeatable `--corr` options)
+to keep correlations by name or zero-based index, in the requested order.
+Each polarization setup in the selection must contain them; data, flags,
+weights and polarization metadata follow the selection.
+
 By default `subset` keeps the original field and SPW ids rather than
 renumbering them the way CASA `split` does, so ids in a subset still match the
 parent MS. Pass `reindex=True` (`--reindex`) for `split`'s behaviour: the
@@ -161,8 +167,8 @@ ANTENNA, POLARIZATION, STATE and OBSERVATION keep every row.
 ```bash
 msutils info      obs.ms [-v] [--level meta|full|data] [--json out.json]
 msutils flagstats obs.ms [--plot flags.png] [--json flags.json] [--field DEEP_2]
-msutils subset    obs.ms target.ms --field DEEP_2 --spw 0 [--chan-bin 4] [--reindex]
-msutils average   obs.ms avg.ms --time-bin 8 --chan-bin 4 [--reindex]
+msutils subset    obs.ms target.ms --field DEEP_2 --spw 0 [--corr XX --corr YY] [--chan-bin 4] [--reindex]
+msutils average   obs.ms avg.ms --time-bin 8 --chan-bin 4 [--corr XX --corr YY] [--reindex]
 msutils delcol    obs.ms CORRECTED_DATA MODEL_DATA
 msutils renamecol obs.ms MODEL_DATA OLD_MODEL
 msutils addcol    obs.ms MODEL_DATA --clone DATA

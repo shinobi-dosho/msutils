@@ -4,6 +4,12 @@
 
 ### Added
 
+- Correlation selection for `subset()` and `average()`: `corrs=["XX", "YY"]`
+  or repeatable `--corr XX --corr YY` options keep names or zero-based indices
+  in the requested order. Each polarization setup in use is resolved
+  independently; missing or duplicate correlations raise before an existing
+  output is replaced. Correlation-shaped columns and POLARIZATION metadata
+  follow the selection, including when subsetting also averages or reindexes.
 - **Exact-native MSv2 restoration** from a data-only preservation bundle:
   `capture_native_preservation()` while the source MS exists, then
   `to_msv2(..., fidelity="exact-native-v1", preservation=...)` or

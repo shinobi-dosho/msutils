@@ -229,7 +229,7 @@ def renamecol(ms, fromcol, tocol):
 
 
 def _selection_options(command):
-    """Shared --field/--spw/--scan/--antenna options."""
+    """Shared row and correlation selection options."""
     for option in reversed(
         [
             click.option(
@@ -243,6 +243,12 @@ def _selection_options(command):
             ),
             click.option(
                 "--antenna", "antennas", multiple=True, help="Antenna id/name to keep (repeatable)."
+            ),
+            click.option(
+                "--corr",
+                "corrs",
+                multiple=True,
+                help="Correlation name or zero-based index to keep (repeatable, in order).",
             ),
         ]
     ):
@@ -300,6 +306,7 @@ def subset(
     spws,
     scans,
     antennas,
+    corrs,
     taql_where,
     time_bin,
     chan_bin,
@@ -322,6 +329,7 @@ def subset(
             spws=list(spws) or None,
             scans=list(scans) or None,
             antennas=list(antennas) or None,
+            corrs=list(corrs) or None,
             taql=taql_where,
             time_bin=time_bin,
             chan_bin=chan_bin,
@@ -329,7 +337,7 @@ def subset(
             reindex=reindex,
             overwrite=overwrite,
         )
-    except ImportError as exc:  # averaging was asked for without the extra
+    except (ImportError, ValueError) as exc:
         raise click.ClickException(str(exc)) from exc
     click.echo(outms)
 
@@ -359,6 +367,7 @@ def average(
     spws,
     scans,
     antennas,
+    corrs,
     taql_where,
     datacolumn,
     reindex,
@@ -377,12 +386,13 @@ def average(
             spws=list(spws) or None,
             scans=list(scans) or None,
             antennas=list(antennas) or None,
+            corrs=list(corrs) or None,
             taql=taql_where,
             datacolumn=datacolumn,
             reindex=reindex,
             overwrite=overwrite,
         )
-    except ImportError as exc:
+    except (ImportError, ValueError) as exc:
         raise click.ClickException(str(exc)) from exc
     click.echo(outms)
 

@@ -48,6 +48,19 @@ Take a piece of it
     # select and average in one pass (hands off to average, so needs [average])
     msutils.subset("obs.ms", "target.ms", fields=["DEEP_2"], time_bin=8.0, chan_bin=4)
 
+Pass ``corrs=["XX", "YY"]`` to either function to keep only the parallel
+hands. Names are case-insensitive; zero-based indices are also accepted. The
+requested order is preserved and resolved against every polarization setup
+in the selected rows. A missing name or index raises an error before the
+output is replaced. An unaveraged subset slices every standard correlation
+column, including optional visibility, flag and weight arrays; averaging
+slices its input arrays before binning. Both update the polarization metadata.
+
+.. code-block:: console
+
+    $ msutils subset obs.ms parallel.ms --field DEEP_2 --corr XX --corr YY --chan-bin 47
+    $ msutils average obs.ms avg.ms --corr 0 --corr 3 --chan-bin 4
+
 :func:`~msutils.subset` keeps the original field and SPW ids rather than
 renumbering them the way CASA ``split`` does, so ids in a subset still match
 the parent MS. Pass ``reindex=True`` for ``split``'s behaviour:
