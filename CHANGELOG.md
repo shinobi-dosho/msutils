@@ -4,6 +4,11 @@
 
 ### Added
 
+- An assessment of dask-ms 0.3.0a1 in the reconstruction documentation and
+  regression coverage for the writer's refusal of untested backend versions.
+  The `exact-native` dependency stays pinned to 0.2.32: the alpha's default
+  table concurrency exhausted file descriptors in the restoration checks,
+  and its arcae requirement conflicts with the reconstruction probe pin.
 - **Exact-native MSv2 restoration** from a data-only preservation bundle:
   `capture_native_preservation()` while the source MS exists, then
   `to_msv2(..., fidelity="exact-native-v1", preservation=...)` or

@@ -296,3 +296,31 @@ semantics must not depend on dask-ms-specific objects.
 The separate ``reconstruction`` extra pins arcae only for the Phase 0
 capability probes above. Installing it does not select the public exact-native
 writer.
+
+dask-ms 0.3 alpha assessment
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For `issue #55 <https://github.com/shinobi-dosho/msutils/issues/55>`_, the
+existing restoration checks were also run against dask-ms 0.3.0a1, arcae
+0.4.0a14 and rarg-python-patterns 0.0.5 on Python 3.13. The experiment used an
+isolated package overlay and temporarily bypassed ``DaskMsWriter``'s version
+check; the supported writer still refuses every version except 0.2.32.
+
+Eight of the nine selected checks passed with the alpha's default settings.
+The final check failed opening a FEED table with ``Too many open files``.
+Repeating in a fresh process with
+``daskms.config.config.set({"casa.ninstances": 1})`` passed all nine: exact
+round-trip identity, row order across batches, restoration after hiding the
+source, the bitwise dtype matrix, lossless relayout of either Zarr tree,
+post-planning payload changes and verification's first-differing-row report.
+This demonstrates compatibility of the exercised writes when table-instance
+concurrency is bounded; it does not establish support for the new backend.
+
+The pin remains unchanged. The alpha requires ``arcae>=0.4.0a14,<0.5``,
+which conflicts with the independent ``reconstruction`` probe's 0.5.4 pin.
+A migration must resolve that dependency conflict and bound table handles
+before widening the writer's version check. ``msutils`` already declares
+python-casacore directly and requires Python 3.11 or later. Its writer uses
+the public ``xds_to_table`` API, with no dependency on ``TableProxy`` or the
+removed dask-ms modules, and the native payload uses zarr directly rather
+than dask-ms's Zarr storage layer.

@@ -855,6 +855,18 @@ def test_failed_writer_removes_private_candidate(zarr_lib, tmp_path):
 # Restoration (dask-ms)
 
 
+@pytest.mark.parametrize("installed", ["0.3.0a1", "0.3.0-alpha.1", "0.3.0", "0.2.31"])
+def test_writer_refuses_untested_backend_versions(monkeypatch, installed):
+    # Exact restoration is fail-closed even if a caller overrides the package
+    # pin; rejecting happens before importing the optional backend or writing.
+    from importlib import metadata
+
+    monkeypatch.setattr(metadata, "version", lambda name: installed)
+    refusal = _refusal("dask-ms-version", native.DaskMsWriter)
+    assert installed in refusal.reason
+    assert "0.2.32" in refusal.reason
+
+
 def _assert_same_tables(old_path, new_path, suffixes):
     for suffix in suffixes:
         with (
