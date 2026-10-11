@@ -574,7 +574,7 @@ def materialize(msv4, outpath, no_weight_spectrum, rowchunk, fidelity, preservat
     """Materialise MSv4 Zarr at MSV4 as a fresh MSv2 at OUTPATH.
 
     Mapped fidelity needs the 'msv4' extra (xarray + zarr). Exact-native-v1
-    needs 'exact-native' (pinned dask-ms) and --preservation, a bundle from
+    needs 'exact-native' (pinned arcae) and --preservation, a bundle from
     capture_native_preservation (schema msutils-native-preservation/v2; older
     bundles are refused). Unsupported content is rejected rather than
     silently omitted.

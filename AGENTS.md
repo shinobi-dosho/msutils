@@ -45,8 +45,8 @@ src/msutils/
   diagnostics.py   du(), check(), taql()
   convert.py       mapped MSv4 conversion and opt-in exact-native restoration
   _native_preservation.py  versioned native bundle (manifest + Zarr payload),
-                          native_logical_id, reconstruction plan, temporary
-                          dask-ms writer and casacore verification
+                          native_logical_id, reconstruction plan, bounded arcae value writer,
+                          casacore schema/metadata and verification
   logical.py       msutils-logical-hash/v1: logical_id() of a Zarr v3 tree and
                    its fail-closed reading policy -- the only implementation
   _tables.py       open_table / query context managers
@@ -179,7 +179,7 @@ into a term the caller did not expect.
 
 ## Dependencies
 
-Base install is `numpy` + `python-casacore` + `click`, and it covers `msinfo`, all column ops, `subset`, flags, `flagstats` and diagnostics. Extras: `plots` (matplotlib), `average` (codex-africanus), `msv4` (xarray, zarr>=3.1 — reading, `logical_id`), `xarray-ms`, `convert` (xradio — writing), `reconstruction` (arcae capability probes), and `exact-native` (pinned dask-ms, for bounded exact-native restoration). `tests/test_import.py` asserts in a subprocess that importing `msutils` pulls in none of them; keep optional imports inside functions.
+Base install is `numpy` + `python-casacore` + `click`, and it covers `msinfo`, all column ops, `subset`, flags, `flagstats` and diagnostics. Extras: `plots` (matplotlib), `average` (codex-africanus), `msv4` (xarray, zarr>=3.1 — reading, `logical_id`), `xarray-ms`, `convert` (xradio — writing), `reconstruction` (arcae capability probes), and `exact-native` (pinned arcae, for bounded exact-native restoration). `tests/test_import.py` asserts in a subprocess that importing `msutils` pulls in none of them; keep optional imports inside functions.
 
 `python-casacore` is a regular dependency (pip wheels bundle casacore), so `pip install .` is self-contained. Python ≥ 3.11.
 

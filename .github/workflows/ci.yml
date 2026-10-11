@@ -37,7 +37,7 @@ jobs:
         run: uv sync --locked --all-extras --group dev
 
       - name: Assert exact-native writer backend
-        run: uv run --locked --all-extras --group dev python -c 'from importlib.metadata import version; assert version("dask-ms") == "0.2.32"'
+        run: uv run --locked --all-extras --group dev python -c 'from importlib.metadata import version; assert version("arcae") == "0.5.4"'
 
       # This is the full-stack job: every optional dependency is installed and
       # any skip is a failure. The separate bare-install job below is where

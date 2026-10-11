@@ -68,15 +68,15 @@ msv4 = [
 xarray-ms = [
     "xarray-ms>=0.5",
 ]
-# Experimental native MSv2 reconstruction probes.  The writer itself is not
-# public yet; pinning arcae keeps the Phase 0 capability evidence reproducible.
+# Native MSv2 reconstruction capability probes; pinning arcae keeps their
+# evidence reproducible. The same version writes exact-native column values.
 reconstruction = [
     "arcae==0.5.4",
 ]
-# Temporary exact-native writer; intentionally pinned to the version probed
-# by the independent round-trip experiment. Kept out of the base install.
+# Exact-native bulk-value writer, pinned to the independently verified version.
+# Schema/metadata construction and read-back remain python-casacore.
 exact-native = [
-    "dask-ms==0.2.32",
+    "arcae==0.5.4",
     "msutils[msv4]",
 ]
 # msutils.convert: writing MSv2 -> MSv4 processing sets.

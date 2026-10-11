@@ -45,7 +45,7 @@ needs it:
      - xradio
      - writing MSv2 → MSv4
    * - ``exact-native``
-     - dask-ms 0.2.32, xarray, zarr
+     - arcae 0.5.4, xarray, zarr
      - bounded exact-native MSv4/Zarr → MSv2 restoration with a v2 preservation
        bundle
 

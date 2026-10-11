@@ -97,7 +97,7 @@ MSv2 still exists, then keep it with the exported Zarr state::
     ids = verify_native_preservation("state.zarr", "state.native")
     assert native_logical_id("restored.ms") == ids.native_logical_id
 
-This opt-in path uses ``msutils[exact-native]`` (dask-ms 0.2.32). Its versioned
+This opt-in path uses ``msutils[exact-native]`` (arcae 0.5.4). Its versioned
 bundle (schema ``msutils-native-preservation/v2``) contains typed descriptors,
 managers, keywords, subtable relationships and row counts in a manifest, and
 the fixed-shape native cells as a Zarr v3 payload in their exact casacore
