@@ -101,7 +101,7 @@ This opt-in path uses ``msutils[exact-native]`` (arcae 0.5.4). Its versioned
 bundle (schema ``msutils-native-preservation/v2``) contains typed descriptors,
 managers, keywords, subtable relationships and row counts in a manifest, and
 the fixed-shape native cells as a Zarr v3 payload in their exact casacore
-types. In this first profile the native cells are preserved in full, so the
+types. Native cells are preserved in full, so the
 bundle can be large. The exact writer restores those bundle payloads; it does
 not read the MSv4 visibility arrays into the target. It binds the Zarr tree by
 its logical ID (:func:`msutils.logical_id`), so lossless rechunking or
@@ -120,13 +120,16 @@ complete native MS, not just its metadata; plan capacity and storage before
 using this mode on a large MS.
 
 The exact mode accepts fixed-shape columns whose cells are all defined or all
-undefined. It refuses mixed definedness, ragged cells, ambiguous empty typed
-keyword arrays, external table references and untested storage managers with
+undefined, including uniformly defined zero-length cells. It preserves the
+native dtype of typed empty keyword arrays. A bare empty keyword list is
+accepted only when native TaQL confirms a string array; ambiguous numeric
+lists refuse. Mixed definedness, ragged cells, external table references and
+managers outside Standard, Incremental, TiledColumn and TiledShape refuse with
 a structured ``NativePreservationRefusal`` identifying the table, column and
-row where possible. The baseline experiment's ``CUSTOM_VARIABLE`` therefore
-still refuses. References must belong to the subtables named by the MAIN
-table, and table, column and keyword names must be identifiers (letters,
-digits and underscores, starting with a letter or underscore). Typed metadata
+row where possible. The baseline experiment's mixed-definedness
+``CUSTOM_VARIABLE`` still refuses. References must belong to the subtables
+named by the MAIN table. Table, column and keyword names must be identifiers
+(letters, digits and underscores, starting with a letter or underscore). Typed metadata
 arrays are limited to 64 MiB and eight dimensions. This profile does not
 discover nested referenced tables. A future
 native-cell adapter can widen that boundary.
@@ -141,14 +144,17 @@ its existing overwrite behavior. The mapped ``weight_spectrum`` and
 publication currently requires Linux ``renameat2`` with
 ``RENAME_NOREPLACE`` support; unsupported systems refuse before publishing.
 
-Manager comparison preserves and checks the raw ``getdminfo()`` record except
-for ``StandardStMan.SPEC.IndexLength``. Casacore exposes that field as the
-serialized byte length of its bucket index, but recomputes it from physical
-index layout and write history instead of accepting it as reconstruction
-configuration. It can therefore differ between logically identical tables.
-Exact-native identity excludes only that derived field; storage-manager type,
-name, column bindings, bucket size, cache configuration and every other
-manager specification remain part of the equality gate. The unnormalised
-``IndexLength`` remains in the preservation bundle as physical-layout
-evidence. Byte-for-byte table-file fidelity would require preserving the
-original casacore files and is outside this data-only profile.
+Existing ``fixed-shape-defined-or-empty/v1`` content keeps its native ID and
+manager comparison: only ``StandardStMan.SPEC.IndexLength`` is excluded from
+the raw ``getdminfo()`` record. Sources using newly supported
+first-axis-empty keyword arrays, zero-length cells or tiled managers use
+profile and native model v2. An array with shape ``(2, 0)`` was already
+accepted by v1 and keeps its v1 ID.
+Model v2 compares manager type, name, column bindings and declared settings,
+including bucket size, cache configuration and ``DEFAULTTILESHAPE``. It
+excludes outer ``SEQNR`` and physical fields casacore regenerates: Standard
+``IndexLength``, tiled ``HYPERCUBES`` and nested ``SEQNR``, and TiledShape
+``IndexSize``. The bundle retains the complete raw manager record as evidence
+and for target creation. Casacore may choose different actual tile shapes;
+byte-for-byte table-file fidelity is outside this data-only profile. See
+:doc:`reconstruction` for the version boundary.
