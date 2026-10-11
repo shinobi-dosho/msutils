@@ -4,6 +4,15 @@
 
 ### Added
 
+- Exact-native profile `fixed-shape-defined-or-empty/v2` now captures typed
+  empty column keyword arrays, uniformly defined zero-length cells, and
+  TiledColumn/TiledShape storage managers. Typed empty keyword arrays retain
+  their native dtype; TaQL recovers a bare empty string keyword. Bounded
+  casacore writes restore zero-element cells. The paired
+  `msutils-native-model/v2` identity retains declared manager settings while
+  excluding regenerated physical tile and index bookkeeping. Existing v1
+  content, IDs and bundles remain supported. Verified IDs and reconstruction
+  plans expose the selected profile and model.
 - Exact-native restoration writes column values directly with arcae 0.5.4
   in serial, explicitly indexed row batches, with one table instance.
   Schema and metadata construction and independent verification remain

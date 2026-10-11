@@ -18,7 +18,7 @@ Three identities are recorded and recomputed on every plan:
   writer never reads MSv4 values);
 * ``payload.logical_id`` -- ``native.zarr`` as stored;
 * ``native_logical_id`` -- the logical hash of a *virtual* tree of the
-  native MSv2 (``msutils-native-model/v1``: one group per table whose
+  native MSv2 (``msutils-native-model/v1`` or ``/v2``: one group per table whose
   attributes are the canonical native metadata, one array per defined
   column). It is computed identically from a live MSv2, from the bundle and
   from a materialised target, which is what lets a caller re-validate a
@@ -46,7 +46,7 @@ from types import MappingProxyType
 from typing import Any
 
 import numpy as np
-from casacore.tables import table
+from casacore.tables import table, taql
 
 from . import _tables
 from .logical import (
@@ -71,9 +71,11 @@ from .logical import (
 SCHEMA = "msutils-native-preservation/v2"
 PROFILE = "fixed-shape-defined-or-empty/v1"
 NATIVE_MODEL = "msutils-native-model/v1"
+PROFILE_V2 = "fixed-shape-defined-or-empty/v2"
+NATIVE_MODEL_V2 = "msutils-native-model/v2"
 _SCHEMA_V1 = "msutils-native-preservation/v1"
 _PAYLOAD = "native.zarr"
-_MANAGER_TYPES = {"StandardStMan", "IncrementalStMan"}
+_MANAGER_TYPES = {"StandardStMan", "IncrementalStMan", "TiledColumnStMan", "TiledShapeStMan"}
 _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 _MAX_MANIFEST_BYTES = 64 * 1024 * 1024
@@ -164,6 +166,8 @@ class NativePreservationIds:
     msv4_logical_id: str
     payload_logical_id: str
     native_logical_id: str
+    profile: str = PROFILE
+    native_model: str = NATIVE_MODEL
 
 
 def _publish_new(source: Path, destination: Path) -> None:
@@ -207,17 +211,84 @@ def _source_state(root: Path) -> list[tuple[str, int, str]]:
     return state
 
 
-def _manager_identity(managers: dict[str, Any]) -> dict[str, Any]:
+def _manager_identity(managers: dict[str, Any], model: str = NATIVE_MODEL) -> dict[str, Any]:
     """Return storage-manager state relevant to canonical native identity.
 
-    ``StandardStMan.SPEC.IndexLength`` is the byte length of casacore's
-    serialized bucket index.  Casacore derives it from the physical index
-    structure and write history, reports it through ``getdminfo()``, and
-    recomputes it when writing rather than accepting it as configuration.
-    Preserve the raw manager record in the bundle, but exclude this one
-    physical-layout statistic from equality.  Manager type, name, column
-    bindings and every other specification field remain exact.
+    V1 excludes only ``StandardStMan.SPEC.IndexLength``, a regenerated
+    physical index length. V2 retains manager type, name, column bindings
+    and declared settings, while excluding outer ``SEQNR`` and regenerated
+    physical fields: Standard ``IndexLength``, tiled ``HYPERCUBES`` and
+    nested ``SEQNR``, and TiledShape ``IndexSize``. Both versions preserve
+    the raw source record in the bundle.
     """
+    if model == NATIVE_MODEL_V2:
+        identity = {}
+        for manager in managers.values():
+            kind = manager.get("TYPE")
+            if kind not in _MANAGER_TYPES:
+                raise NativePreservationRefusal("storage-manager", str(kind))
+            # These fields describe the manager binding and declared default
+            # configuration. Casacore regenerates the remaining physical
+            # hypercube/index bookkeeping when a fresh table is populated.
+            if not isinstance(manager.get("SPEC"), dict):
+                raise NativePreservationRefusal("storage-manager", "invalid manager specification")
+            spec = dict(manager["SPEC"])
+            physical = {
+                "StandardStMan": {"IndexLength"},
+                "IncrementalStMan": set(),
+                "TiledColumnStMan": {"HYPERCUBES", "SEQNR"},
+                "TiledShapeStMan": {"HYPERCUBES", "SEQNR", "IndexSize"},
+            }[kind]
+            declared = {
+                "StandardStMan": {"MaxCacheSize", "BUCKETSIZE", "PERSCACHESIZE"},
+                "IncrementalStMan": {"MaxCacheSize", "BUCKETSIZE", "PERSCACHESIZE"},
+                "TiledColumnStMan": {"MaxCacheSize", "DEFAULTTILESHAPE", "MAXIMUMCACHESIZE"},
+                "TiledShapeStMan": {"MaxCacheSize", "DEFAULTTILESHAPE", "MAXIMUMCACHESIZE"},
+            }[kind]
+            if set(manager) != {"TYPE", "NAME", "SEQNR", "SPEC", "COLUMNS"} or set(spec) - (
+                physical | declared
+            ):
+                raise NativePreservationRefusal("storage-manager", "unsupported manager fields")
+            if kind.startswith("Tiled"):
+                cubes = spec.get("HYPERCUBES", {})
+                if not isinstance(cubes, dict):
+                    raise NativePreservationRefusal("storage-manager", "invalid tiled hypercubes")
+                for cube in cubes.values():
+                    if (
+                        not isinstance(cube, dict)
+                        or set(cube) != {"CubeShape", "TileShape", "CellShape", "BucketSize", "ID"}
+                        or not isinstance(cube["ID"], dict)
+                        or cube["ID"]
+                    ):
+                        raise NativePreservationRefusal(
+                            "storage-manager", "unsupported hypercube fields"
+                        )
+                    for dimension in ("CubeShape", "TileShape", "CellShape"):
+                        extent = np.asarray(cube[dimension])
+                        if extent.ndim != 1 or extent.dtype.kind not in "iu" or np.any(extent < 0):
+                            raise NativePreservationRefusal(
+                                "storage-manager", "invalid hypercube dimensions"
+                            )
+                    if not isinstance(cube["BucketSize"], int) or cube["BucketSize"] < 0:
+                        raise NativePreservationRefusal(
+                            "storage-manager", "invalid hypercube bucket"
+                        )
+            for key in physical:
+                spec.pop(key, None)
+            columns = manager.get("COLUMNS")
+            if (
+                not isinstance(columns, list)
+                or not columns
+                or not all(isinstance(c, str) for c in columns)
+                or not isinstance(manager.get("NAME"), str)
+            ):
+                raise NativePreservationRefusal("storage-manager", "invalid column bindings")
+            record = {"TYPE": kind, "NAME": manager.get("NAME"), "COLUMNS": columns, "SPEC": spec}
+            binding = tuple(sorted(columns))
+            if binding in identity:
+                raise NativePreservationRefusal("storage-manager", "duplicate column bindings")
+            identity[binding] = record
+        return {"|".join(binding): identity[binding] for binding in sorted(identity)}
     identity: dict[str, Any] = {}
     for name, manager in managers.items():
         normalized = dict(manager)
@@ -455,13 +526,16 @@ def _logical_or_refuse(root: Path, where: str, *, check=None) -> TreeDigests:
         ) from exc
 
 
-def _native_tree_id(tables: list[dict[str, Any]] | tuple[dict[str, Any], ...]) -> str:
-    """Logical ID of the ``msutils-native-model/v1`` virtual tree of table records.
+def _native_tree_id(
+    tables: list[dict[str, Any]] | tuple[dict[str, Any], ...], model: str = NATIVE_MODEL
+) -> str:
+    """Logical ID of the selected native virtual tree of table records.
 
     Each record is a manifest table entry whose defined columns carry their
-    array digest. Manager identity excludes ``IndexLength`` (see
-    :func:`_manager_identity`); the profile is deliberately not part of the
-    model, so a profile bump that changes no content changes no native ID.
+    array digest. Manager comparison follows the selected native model (see
+    :func:`_manager_identity`). The profile is not itself hashed; a new
+    model version is selected when newly supported content changes the
+    canonical native representation.
     """
     children = {}
     for item in tables:
@@ -474,7 +548,7 @@ def _native_tree_id(tables: list[dict[str, Any]] | tuple[dict[str, Any], ...]) -
             "rows": item["rows"],
             "descriptor": item["descriptor"],
             "info": item["info"],
-            "managers": _encode(_manager_identity(_decode(item["managers"]))),
+            "managers": _encode(_manager_identity(_decode(item["managers"]), model)),
             "keywords": item["keywords"],
             "references": item["references"],
             "columns": [
@@ -483,7 +557,25 @@ def _native_tree_id(tables: list[dict[str, Any]] | tuple[dict[str, Any], ...]) -
             ],
         }
         children[item["id"]] = (b"G", _group_digest(attributes, arrays))
-    return _format_id(_group_digest({"msutils_native_model": NATIVE_MODEL}, children))
+    return _format_id(_group_digest({"msutils_native_model": model}, children))
+
+
+def _version_for_tables(
+    tables: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+) -> tuple[str, str]:
+    """Keep historical identity for sources already supported by v1."""
+    for item in tables:
+        if any(m["TYPE"].startswith("Tiled") for m in _decode(item["managers"]).values()):
+            return PROFILE_V2, NATIVE_MODEL_V2
+        for desc in _decode(item["descriptor"]).values():
+            if isinstance(desc, dict) and any(
+                isinstance(v, np.ndarray) and v.ndim > 0 and v.shape[0] == 0
+                for v in desc.get("keywords", {}).values()
+            ):
+                return PROFILE_V2, NATIVE_MODEL_V2
+        if any(col["defined"] and 0 in col["shape"] for col in item["columns"]):
+            return PROFILE_V2, NATIVE_MODEL_V2
+    return PROFILE, NATIVE_MODEL
 
 
 # --------------------------------------------------------------------------
@@ -541,13 +633,33 @@ def _table_metadata(tab: Any, path: Path, table_id: str, source: Path) -> dict[s
         _require_identifier(name, "column", table_id=table_id, column=name)
         for keyword, value in desc[name].get("keywords", {}).items():
             _require_identifier(keyword, "column keyword", table_id=table_id, column=name)
-            if isinstance(value, (list, np.ndarray)) and len(value) == 0:
-                raise NativePreservationRefusal(
-                    "empty-typed-keyword",
-                    f"{keyword} has an ambiguous empty type",
-                    table=table_id,
-                    column=name,
-                )
+            if isinstance(value, list) and not value:
+                # A bare [] has lost its element type. Native TaQL reliably
+                # identifies an empty string keyword, but promotes narrower
+                # numeric types, so those cannot be reconstructed from [].
+                # A typed ndarray already holds the native type and shape;
+                # never replace it with a promoted TaQL type.
+                try:
+                    with _tables.query(
+                        f"SELECT \\{name}::\\{keyword} AS V FROM $1", [tab]
+                    ) as result:
+                        value_type = result.getcoldesc("V")["valueType"]
+                    shape = tuple(
+                        int(x)
+                        for x in np.asarray(
+                            taql(f"CALC SHAPE(\\{name}::\\{keyword}) FROM $1", tables=[tab])
+                        ).reshape(-1)
+                    )
+                    if value_type != "string" or not shape or shape[0] != 0:
+                        raise ValueError("bare empty keyword lacks a reliable native type/shape")
+                    desc[name]["keywords"][keyword] = np.empty(shape, dtype="U1")
+                except (KeyError, TypeError, ValueError, RuntimeError) as exc:
+                    raise NativePreservationRefusal(
+                        "empty-typed-keyword",
+                        f"{keyword} has no supported native type/shape: {exc}",
+                        table=table_id,
+                        column=name,
+                    ) from exc
     _require_node_names(names, "column", table_id=table_id)
     managers = tab.getdminfo()
     for manager in managers.values():
@@ -594,19 +706,14 @@ def _definedness(tab: Any, names: list[str]) -> dict[str, np.ndarray]:
 
 
 def _cell_shape(tab: Any, name: str, nrows: int, table_id: str) -> tuple[int, ...]:
-    """The common C-order cell shape; ragged or zero-length cells refuse.
+    """The common C-order cell shape, including defined zero-length cells.
 
-    Reports the same row v1's per-cell scan did: a zero-length cell before a
-    ragged one within a row, and the first row that differs from row 0.
+    Reports the first row whose shape differs from row zero.
     """
     if tab.isscalarcol(name):
         return ()
     first = tab.getcell(name, 0)
     shape = tuple(first["shape"]) if isinstance(first, dict) else np.asarray(first).shape
-    if 0 in shape:
-        raise NativePreservationRefusal(
-            "zero-length-cell", "zero-length array cell", table=table_id, column=name, row=0
-        )
     reference = None
     for start in range(0, nrows, _SHAPE_ROWS):
         count = min(_SHAPE_ROWS, nrows - start)
@@ -618,11 +725,9 @@ def _cell_shape(tab: Any, name: str, nrows: int, table_id: str) -> tuple[int, ..
                 reference = text
                 continue
             if text != reference:
-                extents = [int(part) for part in re.findall(r"\d+", text)]
-                zero = 0 in extents
                 raise NativePreservationRefusal(
-                    "zero-length-cell" if zero else "ragged-cell",
-                    "zero-length array cell" if zero else f"expected shape {reference}, got {text}",
+                    "ragged-cell",
+                    f"expected shape {reference}, got {text}",
                     table=table_id,
                     column=name,
                     row=start + offset,
@@ -642,7 +747,7 @@ def _chunk_rows(
     cells = math.prod(shape)
     if tag == "string":
         if block_rows is None:
-            rows = max(1, min(_AUTO_STRING_ROWS, _MAX_STRING_CHUNK_ELEMENTS // cells))
+            rows = max(1, min(_AUTO_STRING_ROWS, _MAX_STRING_CHUNK_ELEMENTS // max(1, cells)))
         else:
             rows = block_rows
         rows = min(rows, nrows)
@@ -656,7 +761,7 @@ def _chunk_rows(
             )
         return rows
     row_bytes = cells * _NUMPY[tag].itemsize
-    rows = max(1, _AUTO_CHUNK_BYTES // row_bytes) if block_rows is None else block_rows
+    rows = max(1, _AUTO_CHUNK_BYTES // max(1, row_bytes)) if block_rows is None else block_rows
     rows = min(rows, nrows)
     if rows * row_bytes > _MAX_CHUNK_BYTES:
         raise NativePreservationRefusal(
@@ -770,7 +875,7 @@ class _PayloadSink:
             name=f"{table_id}/{name}",
             shape=shape,
             dtype=str if tag == "string" else tag,
-            chunks=(rows, *shape[1:]),
+            chunks=(rows, *(max(1, extent) for extent in shape[1:])),
             serializer=VLenUTF8Codec() if tag == "string" else BytesCodec(endian="little"),
             compressors=[ZstdCodec(level=3, checksum=True)],
             config={"write_empty_chunks": True},
@@ -942,11 +1047,16 @@ def native_logical_id(ms: str | os.PathLike) -> str:
     """Native logical ID of a live MSv2 under the exact-native profile.
 
     The ID is :func:`msutils.logical_id`'s algorithm applied to the
-    ``msutils-native-model/v1`` virtual tree of the MS: one group per table
-    in MAIN's referenced closure, whose attributes are the canonical native
-    metadata (rows, descriptor, info, storage managers without
-    ``StandardStMan`` ``IndexLength``, keywords, references and column
-    records), and one array per defined column. It equals the
+    selected ``msutils-native-model/v1`` or ``/v2`` virtual tree of the MS:
+    one group per table in MAIN's referenced closure, whose attributes are
+    the canonical native metadata (rows, descriptor, info, storage managers,
+    keywords, references and column records), and one array per defined
+    column. V1 is retained for previously supported content and excludes
+    only Standard ``IndexLength`` from manager comparison. Newly supported
+    first-axis-empty keywords, defined zero-length cells and tiled managers
+    select v2, which retains declared manager settings but excludes
+    regenerated physical tile/index details and manager sequence numbers.
+    The ID equals the
     ``native_logical_id`` a preservation bundle captured from this MS
     records, and that of an MS faithfully restored from such a bundle.
 
@@ -967,7 +1077,7 @@ def native_logical_id(ms: str | os.PathLike) -> str:
         tables = _read_native(handles, paths, source, None, None)
         if _source_state(source) != predecessor:
             raise NativePreservationRefusal("source-changed", "source MS changed during read")
-    return _native_tree_id(tables)
+    return _native_tree_id(tables, _version_for_tables(tables)[1])
 
 
 def capture_native_preservation(
@@ -1037,14 +1147,15 @@ def capture_native_preservation(
                             table=item["id"],
                             column=col["name"],
                         )
+            profile, model = _version_for_tables(tables)
             manifest = {
                 "schema": SCHEMA,
-                "profile": PROFILE,
+                "profile": profile,
                 "hash": LOGICAL_HASH,
-                "native_model": NATIVE_MODEL,
+                "native_model": model,
                 "msv4": {"logical_id": msv4_digests.root_id},
                 "payload": {"path": _PAYLOAD, "zarr_format": 3, "logical_id": readback.root_id},
-                "native_logical_id": _native_tree_id(tables),
+                "native_logical_id": _native_tree_id(tables, model),
                 "tables": tables,
                 "coverage": [
                     {"component": component, "source": "preserved-native"}
@@ -1082,6 +1193,8 @@ class ReconstructionPlan:
     native_logical_id: str
     #: ``(table, column) -> hex`` array digests recomputed from the payload.
     column_digests: Mapping[tuple[str, str], str]
+    profile: str = PROFILE
+    native_model: str = NATIVE_MODEL
 
 
 def plan_reconstruction(msv4: str | os.PathLike, bundle: str | os.PathLike) -> ReconstructionPlan:
@@ -1115,6 +1228,8 @@ def verify_native_preservation(
         msv4_logical_id=plan.msv4_logical_id,
         payload_logical_id=plan.payload_logical_id,
         native_logical_id=plan.native_logical_id,
+        profile=plan.profile,
+        native_model=plan.native_model,
     )
 
 
@@ -1131,16 +1246,16 @@ def _v1_refusal() -> NativePreservationRefusal:
 def _check_manifest_header(manifest: dict[str, Any], root: Path) -> None:
     if manifest.get("schema") == _SCHEMA_V1 or os.path.lexists(root / "cells"):
         raise _v1_refusal()
-    for key, wanted in (
-        ("schema", SCHEMA),
-        ("profile", PROFILE),
-        ("hash", LOGICAL_HASH),
-        ("native_model", NATIVE_MODEL),
-    ):
+    for key, wanted in (("schema", SCHEMA), ("hash", LOGICAL_HASH)):
         if manifest.get(key) != wanted:
             raise NativePreservationRefusal(
                 "bundle-version", f"unsupported {key} {manifest.get(key)!r}; expected {wanted!r}"
             )
+    if (manifest.get("profile"), manifest.get("native_model")) not in (
+        (PROFILE, NATIVE_MODEL),
+        (PROFILE_V2, NATIVE_MODEL_V2),
+    ):
+        raise NativePreservationRefusal("bundle-version", "unsupported profile/native model pair")
     entries = sorted(os.listdir(root))
     if (
         entries != ["manifest.json", _PAYLOAD]
@@ -1186,7 +1301,7 @@ def _check_manifest_header(manifest: dict[str, Any], root: Path) -> None:
         raise NativePreservationRefusal("bundle-manifest", "invalid created_by record")
 
 
-def _check_columns(item: dict[str, Any], desc: dict[str, Any]) -> None:
+def _check_columns(item: dict[str, Any], desc: dict[str, Any], profile: str) -> None:
     rows = item["rows"]
     for col in item["columns"]:
         if (
@@ -1198,7 +1313,8 @@ def _check_columns(item: dict[str, Any], desc: dict[str, Any]) -> None:
                 "bundle-column", "invalid column fields", table=item["id"], column=col["name"]
             )
         if col["shape"] is not None and any(
-            type(size) is not int or size <= 0 for size in col["shape"]
+            type(size) is not int or size < (0 if profile == PROFILE_V2 else 1)
+            for size in col["shape"]
         ):
             raise NativePreservationRefusal(
                 "bundle-column",
@@ -1374,7 +1490,9 @@ def _plan_reconstruction(msv4: str | os.PathLike, bundle: str | os.PathLike) -> 
                 "column records are not in descriptor (colnames) order",
                 table=item["id"],
             )
-        _check_columns(item, desc)
+        _check_columns(item, desc, manifest["profile"])
+    if _version_for_tables(tables) != (manifest["profile"], manifest["native_model"]):
+        raise NativePreservationRefusal("bundle-version", "profile does not match native content")
     # The MSv4 tree is the caller's input and the likeliest thing to have
     # changed since capture; refuse on it before paying for the payload read.
     msv4_digests = _logical_or_refuse(Path(msv4).resolve(strict=True), "msv4")
@@ -1401,7 +1519,7 @@ def _plan_reconstruction(msv4: str | os.PathLike, bundle: str | os.PathLike) -> 
             digests[(item["id"], col["name"])] = digest
     if stored.root_id != manifest["payload"]["logical_id"]:
         raise NativePreservationRefusal("bundle-integrity", "payload logical ID differs")
-    native_id = _native_tree_id(tables)
+    native_id = _native_tree_id(tables, manifest["native_model"])
     if native_id != manifest["native_logical_id"]:
         raise NativePreservationRefusal("bundle-integrity", "native logical ID differs")
     return ReconstructionPlan(
@@ -1411,6 +1529,8 @@ def _plan_reconstruction(msv4: str | os.PathLike, bundle: str | os.PathLike) -> 
         msv4_logical_id=msv4_digests.root_id,
         payload_logical_id=stored.root_id,
         native_logical_id=native_id,
+        profile=manifest["profile"],
+        native_model=manifest["native_model"],
         column_digests=MappingProxyType(digests),
     )
 
@@ -1426,7 +1546,7 @@ def _row_bytes(col: dict[str, Any]) -> int:
 
 def _batch_rows(columns: list[dict[str, Any]], rows: int) -> int:
     """Rows per write, verify or identity-read batch, keeping one batch bounded."""
-    return max(1, min(rows, _READ_BYTES // sum(_row_bytes(col) for col in columns)))
+    return max(1, min(rows, 65536, _READ_BYTES // sum(_row_bytes(col) for col in columns)))
 
 
 def _open_payload(plan: ReconstructionPlan) -> tuple[Any, Any]:
@@ -1495,20 +1615,33 @@ class ArcaeWriter:
             if not columns:
                 continue
             readers = {col["name"]: _payload_rows(zarr, store, table_id, col) for col in columns}
+            nonempty = [col for col in columns if 0 not in col["shape"]]
+            empty = [col for col in columns if 0 in col["shape"]]
             batch = _batch_rows(columns, item["rows"])
             # Schema and metadata handles are closed before arcae opens its own
             # casacore instance. A single instance bounds handles and keeps
             # indexed writes serial in native row and column order.
-            with Table.from_filename(
-                str(path), readonly=False, ninstances=1, cache_size=1
-            ) as target:
-                for start in range(0, item["rows"], batch):
-                    stop = min(start + batch, item["rows"])
-                    rows = np.arange(start, stop, dtype=np.int64)
-                    for col in columns:
-                        values = readers[col["name"]](start, stop)
-                        index = (rows,) + (None,) * (values.ndim - 1)
-                        target.putcol(col["name"], values, index=index)
+            if nonempty:
+                with Table.from_filename(
+                    str(path), readonly=False, ninstances=1, cache_size=1
+                ) as target:
+                    for start in range(0, item["rows"], batch):
+                        stop = min(start + batch, item["rows"])
+                        rows = np.arange(start, stop, dtype=np.int64)
+                        for col in nonempty:
+                            values = readers[col["name"]](start, stop)
+                            index = (rows,) + (None,) * (values.ndim - 1)
+                            target.putcol(col["name"], values, index=index)
+            if empty:
+                # arcae 0.5.4 cannot put a zero-element row. Casacore's
+                # putcell records its definedness and shape without data.
+                with table(str(path), readonly=False, ack=False) as target:
+                    for col in empty:
+                        name = col["name"]
+                        for start in range(0, item["rows"], batch):
+                            values = readers[name](start, min(start + batch, item["rows"]))
+                            for offset, value in enumerate(values):
+                                target.putcell(name, start + offset, value)
 
 
 def _same_cell(actual: np.ndarray, expected: np.ndarray) -> bool:
@@ -1600,6 +1733,10 @@ def _verify_target(plan: ReconstructionPlan, destination: Path) -> None:
                 desc = tab.getdesc()
                 desc.pop("_keywords_", None)
                 desc.pop("_private_keywords_", None)
+                # Apply capture's metadata extraction: typed empty arrays
+                # retain their dtype; bare empty string lists use native TaQL.
+                actual_meta = _table_metadata(tab, path, table_id, destination)
+                desc = _decode(actual_meta["descriptor"])
                 if _json_bytes(_encode(desc)) != _json_bytes(item["descriptor"]):
                     expected = _decode(item["descriptor"])
                     different = sorted(
@@ -1617,9 +1754,9 @@ def _verify_target(plan: ReconstructionPlan, destination: Path) -> None:
                 # compare the documented canonical identity. StandardStMan's
                 # IndexLength is derived physical bookkeeping, not MS state.
                 expected_managers = _decode(item["managers"])
-                if _json_bytes(_encode(_manager_identity(tab.getdminfo()))) != _json_bytes(
-                    _encode(_manager_identity(expected_managers))
-                ):
+                if _json_bytes(
+                    _encode(_manager_identity(tab.getdminfo(), plan.native_model))
+                ) != _json_bytes(_encode(_manager_identity(expected_managers, plan.native_model))):
                     raise NativePreservationRefusal(
                         "verify-manager", "storage manager differs", table=table_id
                     )
@@ -1674,7 +1811,7 @@ def _verify_target(plan: ReconstructionPlan, destination: Path) -> None:
                         }
                     )
                 records.append({**meta, "columns": columns})
-    if _native_tree_id(records) != plan.native_logical_id:
+    if _native_tree_id(records, plan.native_model) != plan.native_logical_id:
         raise NativePreservationRefusal(
             "verify-native-id", "target native logical ID differs from the bundle"
         )

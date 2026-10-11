@@ -95,22 +95,23 @@ demonstrate it.
      - ``putcol`` accepts rectangular NumPy arrays; there is no general
        null-aware/ragged writer in the pinned API.
    * - Zero-length array cells
-     - gated
-     - Kept as a strict expected-failure probe until both creation and reopen
-       preserve the cell shape.
+     - supported in exact-native profile v2
+     - Uniformly defined zero-length cells keep their native type, shape and
+       definedness. Bounded casacore cell writes handle this case.
    * - Empty typed keyword arrays
-     - gated
-     - Descriptor JSON loses the element type of an empty array.  The probe
-       requires independent native type verification before support can be
-       claimed.
+     - supported in exact-native profile v2
+     - python-casacore's typed empty arrays retain their native dtype and
+       shape. A bare empty list is accepted only when TaQL confirms a string
+       keyword; TaQL promotes narrow numeric types, so an ambiguous numeric
+       list refuses.
    * - Relocating a staged MS with linked optional subtables
      - supported
      - After a parent-directory rename, the optional-subtable keyword resolves
        to the published path and the table reopens through ``::``.
    * - Arbitrary source data-manager records
      - gated
-     - The first profile must use an allowlisted output policy; virtual and
-       plugin-specific managers may depend on unavailable source state.
+     - Standard, Incremental, TiledColumn and TiledShape managers are
+       supported. Virtual and plugin-specific managers remain refused.
 
 The strict expected-failure probes are intentional capability sentinels.  An
 unexpected pass fails the suite so that the matrix and reconstruction boundary
@@ -189,13 +190,34 @@ The manifest records three IDs, all ``msutils-logical-hash/v1`` (see
     :func:`~msutils.logical_id` of ``native.zarr``, with one array digest per
     column recorded in the column's ``digest``.
 ``native_logical_id``
-    The logical hash of the ``msutils-native-model/v1`` virtual tree of the
+    The logical hash of a versioned virtual tree of the
     native MS: one group per table whose attributes are its rows, descriptor,
-    info, storage managers (without ``StandardStMan`` ``IndexLength``),
+    info, canonical storage managers,
     keywords, references and column records, and one array per defined
     column. :func:`~msutils.native_logical_id` computes it from a live MSv2
     with only the base install, so it is equal for the source at capture, for
     the bundle, and for a faithfully materialised target.
+
+Sources accepted by the original ``fixed-shape-defined-or-empty/v1`` profile
+keep their ``msutils-native-model/v1`` IDs and existing schema-v2 bundles
+remain readable. Sources with newly supported first-axis-empty keyword arrays
+(the shape returned by ``getdesc()`` starts with zero), uniformly defined
+zero-length cells, or TiledColumn/TiledShape managers use
+``fixed-shape-defined-or-empty/v2`` and ``msutils-native-model/v2``. The
+manifest pairs the versions, and planning rejects a mismatched pair or one
+inconsistent with the content. ``NativePreservationIds`` and
+``ReconstructionPlan`` expose both versions.
+An empty array of shape ``(2, 0)`` was already accepted by v1 and keeps its
+v1 ID; the new profile does not reclassify previously accepted sources.
+
+Model v2 retains manager type, name, column bindings and declared settings,
+including ``DEFAULTTILESHAPE``. It excludes regenerated physical bookkeeping:
+outer manager ``SEQNR``, Standard ``IndexLength``, tiled ``HYPERCUBES`` and
+nested ``SEQNR``, and TiledShape ``IndexSize``. The bundle keeps the raw source
+manager record for creation and provenance. Casacore may rebuild actual tile
+shapes or renumber managers, so the v2 ID covers logical native content and
+declared manager settings rather than byte-identical physical layout. Unknown
+manager types or fields refuse.
 
 Because the bindings are logical, **either tree may be rechunked,
 recompressed, resharded or re-encoded losslessly** (any layout the reading
@@ -271,9 +293,8 @@ Bundles written by pre-release ``main`` (schema
 ``msutils-native-preservation/v1``: per-block ``.npy`` files bound by a byte
 ledger of the Zarr files) are refused with ``bundle-version``; recapture them
 from the source MS. Schema v1 was never part of a release. The public
-fidelity name, ``exact-native-v1``, and the profile,
-``fixed-shape-defined-or-empty/v1``, are unchanged: what is guaranteed and
-what is accepted did not change, only the storage format.
+fidelity name remains ``exact-native-v1``. Schema-v2 manifests record either
+the v1 or v2 profile/model pair described above.
 
 Both trees must be Zarr v3. :func:`~msutils.to_msv4` (xradio 1.2) and
 xarray-ms exports write Zarr v3 on the supported stack; a Zarr v2 MSv4 tree is
@@ -289,7 +310,8 @@ subtable references and table info still use python-casacore: arcae 0.5.4
 has no generic table-creation or keyword/info setters. Those handles close
 before each table is reopened by arcae with one instance and a cache size of
 one. Writes select explicit native row indices, process columns serially,
-and use bounded row batches. Undefined columns remain unwritten. There is
+and use bounded row batches. Casacore writes defined zero-element cells,
+which arcae cannot write. Undefined columns remain unwritten. There is
 no writer fallback; an untested arcae version refuses with ``arcae-version``.
 
 Capture and mandatory independent read-back verification use python-casacore,

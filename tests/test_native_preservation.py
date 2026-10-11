@@ -121,7 +121,6 @@ def _add_variable(source, cells):
 PROFILE_CASES = {
     "mixed-definedness": (2, {0: [1.0, 2.0]}, 1),
     "ragged-cell": (2, {0: [1.0, 2.0], 1: [3.0]}, 1),
-    "zero-length-cell": (1, {0: []}, 0),
     "six-row-mixed": (6, {row: np.arange(row + 1) for row in range(5)}, 5),
 }
 
@@ -393,12 +392,162 @@ def test_capture_refuses_source_change_during_read(zarr_lib, tmp_path, monkeypat
     assert not (tmp_path / "bundle").exists()
 
 
-def test_capture_refuses_ambiguous_empty_keyword(zarr_lib, tmp_path):
+def test_capture_preserves_native_typed_empty_keyword(zarr_lib, arcae, tmp_path):
     source, state = _source(tmp_path, set_category=False)
-    refusal = _refusal(
-        "empty-typed-keyword", capture_native_preservation, source, state, tmp_path / "bundle"
-    )
-    assert refusal.column == "FLAG_CATEGORY"
+    with table(str(source), readonly=False, ack=False) as tab:
+        tab.putcolkeyword("DATA", "EMPTY_NUMERIC", np.empty((0,), dtype=np.float64))
+    with table(str(source / "HISTORY"), readonly=False, ack=False) as tab:
+        assert tab.nrows() == 0
+        tab.putcolkeyword("MESSAGE", "EMPTY_TEXT", np.empty((0,), dtype="U1"))
+    bundle = capture_native_preservation(source, state, tmp_path / "bundle")
+    manifest = _manifest(bundle)
+    assert manifest["profile"] == native.PROFILE_V2
+    assert manifest["native_model"] == native.NATIVE_MODEL_V2
+    desc = _decode(manifest["tables"][0]["descriptor"])
+    assert desc["FLAG_CATEGORY"]["keywords"]["CATEGORY"].dtype.kind == "U"
+    assert desc["FLAG_CATEGORY"]["keywords"]["CATEGORY"].shape == (0,)
+    assert desc["DATA"]["keywords"]["EMPTY_NUMERIC"].dtype == np.float64
+    history = next(item for item in manifest["tables"] if item["id"] == "HISTORY")
+    assert _decode(history["descriptor"])["MESSAGE"]["keywords"]["EMPTY_TEXT"].shape == (0,)
+    ids = verify_native_preservation(state, bundle)
+    assert ids.profile == native.PROFILE_V2
+    target = tmp_path / "target.ms"
+    materialize_exact_native(state, target, bundle)
+    assert native_logical_id(target) == ids.native_logical_id
+
+
+@pytest.mark.parametrize(
+    "dtype",
+    [
+        np.bool_,
+        np.int16,
+        np.int32,
+        np.uint32,
+        np.int64,
+        np.float32,
+        np.float64,
+        np.complex64,
+        np.complex128,
+    ],
+)
+def test_native_empty_numeric_keyword_dtype_is_preserved(zarr_lib, arcae, tmp_path, dtype):
+    source, state = _source(tmp_path)
+    with table(str(source), readonly=False, ack=False) as tab:
+        tab.putcolkeyword("DATA", "EMPTY_NATIVE_TYPE", np.empty((0,), dtype=dtype))
+        native_value = tab.getcolkeyword("DATA", "EMPTY_NATIVE_TYPE")
+        assert isinstance(native_value, np.ndarray)
+        assert native_value.dtype == np.dtype(dtype)
+        assert native_value.shape == (0,)
+        # This independent TaQL result documents why its descriptor cannot
+        # override the dtype already present in python-casacore's ndarray.
+        with native._tables.query("SELECT DATA::EMPTY_NATIVE_TYPE AS V FROM $1", [tab]) as result:
+            assert isinstance(result.getcoldesc("V")["valueType"], str)
+    source_id = native_logical_id(source)
+    bundle = capture_native_preservation(source, state, tmp_path / "bundle")
+    manifest = _manifest(bundle)
+    assert manifest["profile"] == native.PROFILE_V2
+    preserved = _decode(manifest["tables"][0]["descriptor"])["DATA"]["keywords"][
+        "EMPTY_NATIVE_TYPE"
+    ]
+    assert preserved.dtype == np.dtype(dtype) and preserved.shape == (0,)
+    assert verify_native_preservation(state, bundle).native_logical_id == source_id
+    source.rename(tmp_path / "source-hidden.ms")
+    target = tmp_path / "target.ms"
+    materialize_exact_native(state, target, bundle)
+    with table(str(target), ack=False) as tab:
+        restored = tab.getcolkeyword("DATA", "EMPTY_NATIVE_TYPE")
+        assert isinstance(restored, np.ndarray)
+        assert restored.dtype == np.dtype(dtype) and restored.shape == (0,)
+    assert native_logical_id(target) == source_id
+
+
+def test_empty_numeric_keyword_dtype_changes_native_id(tmp_path):
+    source = _ms(tmp_path)
+    other = tmp_path / "other.ms"
+    shutil.copytree(source, other)
+    with table(str(source), readonly=False, ack=False) as tab:
+        tab.putcolkeyword("DATA", "EMPTY_NATIVE_TYPE", np.empty((0,), dtype=np.float32))
+    with table(str(other), readonly=False, ack=False) as tab:
+        tab.putcolkeyword("DATA", "EMPTY_NATIVE_TYPE", np.empty((0,), dtype=np.float64))
+    assert native_logical_id(source) != native_logical_id(other)
+
+
+@pytest.mark.parametrize("value_type,dtype", [("double", np.float64), ("string", "U1")])
+def test_defined_zero_length_cell_restores_and_differs_from_undefined(
+    zarr_lib, arcae, tmp_path, value_type, dtype
+):
+    source, state = _source(tmp_path, set_category=False)
+    with table(str(source), readonly=False, ack=False) as tab:
+        tab.addcols(
+            makearrcoldesc(
+                "EMPTY", "" if value_type == "string" else 0.0, ndim=1, valuetype=value_type
+            )
+        )
+        tab.putcell("EMPTY", 0, np.empty((0,), dtype=dtype))
+    bundle = capture_native_preservation(source, state, tmp_path / "bundle")
+    column = next(c for c in _manifest(bundle)["tables"][0]["columns"] if c["name"] == "EMPTY")
+    assert column["defined"] and column["shape"] == [0]
+    source_id = native_logical_id(source)
+    source.rename(tmp_path / "source-hidden.ms")
+    target = tmp_path / "target.ms"
+    materialize_exact_native(state, target, bundle)
+    with table(str(target), ack=False) as tab:
+        assert tab.iscelldefined("EMPTY", 0)
+        cell = tab.getcell("EMPTY", 0)
+        assert (tuple(cell["shape"]) if isinstance(cell, dict) else np.asarray(cell).shape) == (0,)
+    assert source_id == native_logical_id(target)
+
+
+def test_v2_bundle_rejects_mismatched_profile_and_model(zarr_lib, tmp_path):
+    source, state = _source(tmp_path, set_category=False)
+    bundle = capture_native_preservation(source, state, tmp_path / "bundle")
+    manifest = _manifest(bundle)
+    assert manifest["profile"] == native.PROFILE_V2
+    for profile, model in (
+        (native.PROFILE, native.NATIVE_MODEL_V2),
+        (native.PROFILE_V2, native.NATIVE_MODEL),
+        (native.PROFILE, native.NATIVE_MODEL),
+    ):
+        changed = dict(manifest, profile=profile, native_model=model)
+        _write_manifest(bundle, changed)
+        _refusal("bundle-version", verify_native_preservation, state, bundle)
+    _write_manifest(bundle, manifest)
+
+
+def test_tiled_column_and_shape_managers_restore(zarr_lib, arcae, tmp_path):
+    source, state = _source(tmp_path, ntime=4, set_category=False)
+    with table(str(source), readonly=False, ack=False) as tab:
+        for kind, name, shape in (
+            ("TiledColumnStMan", "TILED_COLUMN", [2, 3]),
+            ("TiledShapeStMan", "TILED_SHAPE", None),
+        ):
+            desc = makearrcoldesc(name, 0j, shape=shape or [], ndim=2, valuetype="complex")
+            desc["desc"]["dataManagerType"] = kind
+            desc["desc"]["dataManagerGroup"] = name
+            tab.addcols(
+                desc,
+                {
+                    "TYPE": kind,
+                    "NAME": name,
+                    "COLUMNS": [name],
+                    "SPEC": {"DEFAULTTILESHAPE": [2, 2, 2]},
+                },
+            )
+            for row in range(tab.nrows()):
+                tab.putcell(name, row, np.full((2, 3), row + 1j, dtype=np.complex64))
+        source_managers = tab.getdminfo()
+    assert {m["TYPE"] for m in source_managers.values()} >= {"TiledColumnStMan", "TiledShapeStMan"}
+    bundle = capture_native_preservation(source, state, tmp_path / "bundle")
+    manifest = _manifest(bundle)
+    assert manifest["profile"] == native.PROFILE_V2
+    target = tmp_path / "target.ms"
+    materialize_exact_native(state, target, bundle)
+    _assert_same_tables(source, target, [""])
+    with table(str(target), ack=False) as tab:
+        assert _encode(_manager_identity(tab.getdminfo(), native.NATIVE_MODEL_V2)) == _encode(
+            _manager_identity(source_managers, native.NATIVE_MODEL_V2)
+        )
+    assert native_logical_id(source) == native_logical_id(target)
 
 
 @pytest.mark.parametrize("location", ["ms", "zarr", "linked-ms"])
