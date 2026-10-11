@@ -2,7 +2,7 @@
 
 Tests that need no optional stack (native_logical_id, the capture refusals it
 shares, the metadata codecs) run on the bare install; bundle tests need zarr
-(``msutils[msv4]``) and restoration tests dask-ms (``msutils[exact-native]``).
+(``msutils[msv4]``) and restoration tests arcae (``msutils[exact-native]``).
 """
 
 import json
@@ -42,8 +42,10 @@ def zarr_lib():
 
 
 @pytest.fixture
-def daskms():
-    return pytest.importorskip("daskms", reason="exact-native restoration needs dask-ms")
+def arcae():
+    return pytest.importorskip(
+        "arcae", reason="exact-native restoration needs msutils[exact-native]"
+    )
 
 
 def test_manager_identity_excludes_only_standard_stman_index_length():
@@ -196,7 +198,7 @@ def test_native_logical_id_needs_no_optional_stack(tmp_path):
     code = (
         "import sys, msutils;"
         "print(msutils.native_logical_id(sys.argv[1]));"
-        "print(','.join(m for m in ('zarr', 'xarray', 'dask', 'daskms') if m in sys.modules))"
+        "print(','.join(m for m in ('arcae', 'zarr', 'xarray', 'dask', 'daskms') if m in sys.modules))"
     )
     env = dict(os.environ, PYTHONPATH=os.pathsep.join(sys.path))
     result = subprocess.run(
@@ -852,19 +854,19 @@ def test_failed_writer_removes_private_candidate(zarr_lib, tmp_path):
 
 
 # --------------------------------------------------------------------------
-# Restoration (dask-ms)
+# Restoration (arcae)
 
 
-@pytest.mark.parametrize("installed", ["0.3.0a1", "0.3.0-alpha.1", "0.3.0", "0.2.31"])
+@pytest.mark.parametrize("installed", ["0.4.0a14", "0.5.3", "0.5.5", "0.6.0"])
 def test_writer_refuses_untested_backend_versions(monkeypatch, installed):
     # Exact restoration is fail-closed even if a caller overrides the package
     # pin; rejecting happens before importing the optional backend or writing.
     from importlib import metadata
 
     monkeypatch.setattr(metadata, "version", lambda name: installed)
-    refusal = _refusal("dask-ms-version", native.DaskMsWriter)
+    refusal = _refusal("arcae-version", native.ArcaeWriter)
     assert installed in refusal.reason
-    assert "0.2.32" in refusal.reason
+    assert "0.5.4" in refusal.reason
 
 
 def _assert_same_tables(old_path, new_path, suffixes):
@@ -893,7 +895,7 @@ def _assert_same_tables(old_path, new_path, suffixes):
                             assert original.tobytes() == actual.tobytes(), (column, row)
 
 
-def test_daskms_exact_native_roundtrip(zarr_lib, daskms, tmp_path):
+def test_arcae_exact_native_roundtrip(zarr_lib, arcae, tmp_path):
     source, state = _source(tmp_path)
     with table(str(source), readonly=False, ack=False) as tab:
         tab.putkeyword("SHINOBI_FIXTURE_PROFILE", "fixed-shape")
@@ -929,7 +931,50 @@ def test_daskms_exact_native_roundtrip(zarr_lib, daskms, tmp_path):
     assert native_logical_id(target) == _manifest(bundle)["native_logical_id"]
 
 
-def test_rowids_preserve_order_across_chunks(zarr_lib, daskms, tmp_path, monkeypatch):
+def test_restoration_preserves_nested_metadata_and_incremental_manager(zarr_lib, arcae, tmp_path):
+    source, state = _source(tmp_path, ntime=4)
+    record = {
+        "integers": np.asarray([-(2**31), 2**31 - 1], dtype=np.int32),
+        "flags": np.asarray([True, False]),
+        "labels": np.asarray(["é𝄞", "typed"]),
+        "nested": {"signed_zero": -0.0, "complex": complex(-0.0, 2)},
+    }
+    with table(str(source), readonly=False, ack=False) as tab:
+        tab.putkeyword("CUSTOM_RECORD", record)
+        tab.putcolkeyword("DATA", "CUSTOM_RECORD", record)
+        tab.addcols(
+            makescacoldesc(
+                "CUSTOM_INCREMENTAL",
+                0,
+                valuetype="int",
+                datamanagertype="IncrementalStMan",
+                datamanagergroup="custom_incremental",
+            ),
+            dminfo={"TYPE": "IncrementalStMan", "NAME": "custom_incremental"},
+        )
+        tab.putcol("CUSTOM_INCREMENTAL", np.asarray([5, 5, 9, 9], dtype=np.int32))
+        tab.addcols(makearrcoldesc("CUSTOM_UNDEFINED", 0.0, ndim=1, valuetype="float"))
+    bundle = capture_native_preservation(source, state, tmp_path / "bundle")
+    manifest = _manifest(bundle)
+    main = manifest["tables"][0]
+    assert any(m["TYPE"] == "IncrementalStMan" for m in _decode(main["managers"]).values())
+    assert not next(c for c in main["columns"] if c["name"] == "CUSTOM_UNDEFINED")["defined"]
+    target = tmp_path / "target.ms"
+    materialize_exact_native(state, target, bundle)
+    _assert_same_tables(source, target, ["", "::ANTENNA"])
+    with (
+        table(str(source), ack=False) as old,
+        table(str(target), ack=False) as new,
+    ):
+        assert _encode(new.getkeyword("CUSTOM_RECORD")) == _encode(old.getkeyword("CUSTOM_RECORD"))
+        assert _encode(new.getcolkeyword("DATA", "CUSTOM_RECORD")) == _encode(
+            old.getcolkeyword("DATA", "CUSTOM_RECORD")
+        )
+        assert _manager_identity(new.getdminfo()) == _manager_identity(old.getdminfo())
+    assert native_logical_id(target) == manifest["native_logical_id"]
+
+
+def test_rowids_preserve_order_across_chunks(zarr_lib, arcae, tmp_path, monkeypatch):
     source, state = _source(tmp_path, ntime=2)
     with table(str(source), readonly=False, ack=False) as tab:
         tab.putcell("FLAG_ROW", 0, True)
@@ -938,7 +983,7 @@ def test_rowids_preserve_order_across_chunks(zarr_lib, daskms, tmp_path, monkeyp
     bundle = capture_native_preservation(source, state, tmp_path / "bundle", block_rows=1)
     chunks = json.loads((bundle / "native.zarr" / "MAIN" / "TIME" / "zarr.json").read_text())
     assert chunks["chunk_grid"]["configuration"]["chunk_shape"] == [1]
-    # One row per write batch as well, so ROWID ordering is exercised on write.
+    # One row per write batch as well, so explicit native row indices are exercised on write.
     monkeypatch.setattr(native, "_READ_BYTES", 1)
     target = tmp_path / "target.ms"
     materialize_exact_native(state, target, bundle)
@@ -947,7 +992,7 @@ def test_rowids_preserve_order_across_chunks(zarr_lib, daskms, tmp_path, monkeyp
         np.testing.assert_array_equal(tab.getcol("TIME"), original_times)
 
 
-def test_source_can_be_hidden_after_capture(zarr_lib, daskms, tmp_path):
+def test_source_can_be_hidden_after_capture(zarr_lib, arcae, tmp_path):
     source, state = _source(tmp_path, ntime=6)
     bundle = capture_native_preservation(source, state, tmp_path / "bundle", block_rows=2)
     source.rename(tmp_path / "hidden-source")
@@ -955,6 +1000,124 @@ def test_source_can_be_hidden_after_capture(zarr_lib, daskms, tmp_path):
     materialize_exact_native(state, target, bundle)
     with table(str(target), ack=False) as tab:
         assert tab.nrows() == 6
+
+
+@pytest.mark.parametrize("fail", [False, True])
+def test_writer_bounds_serial_indexed_writes_and_closes_handles(
+    zarr_lib, arcae, tmp_path, monkeypatch, fail
+):
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+
+    from arcae.lib import arrow_tables
+
+    source, state = _source(tmp_path, ntime=4)
+    bundle = capture_native_preservation(source, state, tmp_path / "bundle")
+    plan = plan_reconstruction(state, bundle)
+    target = tmp_path / "target.ms"
+    monkeypatch.setattr(native, "_READ_BYTES", 1)
+    original_table, original_arcae = native.table, arrow_tables.Table
+    metadata_handles, value_handles, opened, closed, calls = [], [], [], [], []
+
+    @contextmanager
+    def metadata_table(*args, **kwargs):
+        with original_table(*args, **kwargs) as handle:
+            metadata_handles.append(handle)
+            try:
+                yield handle
+            finally:
+                metadata_handles.remove(handle)
+
+    class ValueTable:
+        def __init__(self, path, **kwargs):
+            assert not metadata_handles
+            assert not value_handles
+            assert kwargs == {"readonly": False, "ninstances": 1, "cache_size": 1}
+            self.path = path
+            self.handle = original_arcae.from_filename(path, **kwargs)
+
+        def __enter__(self):
+            self.handle.__enter__()
+            opened.append(self.path)
+            value_handles.append(self)
+            return self
+
+        def putcol(self, name, values, *, index):
+            assert len(value_handles) == 1
+            assert not metadata_handles
+            assert values.shape[0] == 1
+            assert index[0].dtype == np.int64
+            assert index[0].shape == (1,)
+            assert index[1:] == (None,) * (values.ndim - 1)
+            calls.append((self.path, name, int(index[0][0])))
+            if fail:
+                raise RuntimeError("indexed write failed")
+            self.handle.putcol(name, values, index=index)
+
+        def __exit__(self, *args):
+            try:
+                return self.handle.__exit__(*args)
+            finally:
+                closed.append(self.path)
+                value_handles.remove(self)
+
+    monkeypatch.setattr(native, "table", metadata_table)
+    monkeypatch.setattr(arrow_tables, "Table", SimpleNamespace(from_filename=ValueTable))
+    if fail:
+        with pytest.raises(RuntimeError, match="indexed write failed"):
+            materialize_exact_native(state, target, bundle)
+        assert not target.exists()
+        assert not list(tmp_path.glob(".target.ms.*"))
+    else:
+        materialize_exact_native(state, target, bundle)
+        expected = [
+            (item["id"], col["name"], row)
+            for item in plan.tables
+            for row in range(item["rows"])
+            for col in item["columns"]
+            if col["defined"]
+        ]
+        actual = [
+            ("MAIN" if path.endswith("candidate.ms") else os.path.basename(path), name, row)
+            for path, name, row in calls
+        ]
+        assert actual == expected
+    assert opened == closed
+    assert not value_handles
+    assert not metadata_handles
+
+
+def test_default_restoration_does_not_import_daskms(zarr_lib, arcae, tmp_path):
+    source, state = _source(tmp_path, ntime=4)
+    bundle = capture_native_preservation(source, state, tmp_path / "bundle")
+    source.rename(tmp_path / "hidden-source")
+    target = tmp_path / "target.ms"
+    code = """
+import importlib.abc
+import sys
+
+class BlockDaskMs(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname == "daskms" or fullname.startswith("daskms."):
+            raise AssertionError("restoration imported daskms")
+
+sys.meta_path.insert(0, BlockDaskMs())
+from msutils._native_preservation import materialize_exact_native
+from msutils import native_logical_id
+materialize_exact_native(sys.argv[1], sys.argv[2], sys.argv[3])
+print(native_logical_id(sys.argv[2]))
+assert not any(name == "daskms" or name.startswith("daskms.") for name in sys.modules)
+"""
+    env = dict(os.environ, PYTHONPATH=os.pathsep.join(sys.path))
+    result = subprocess.run(
+        [sys.executable, "-c", code, str(state), str(target), str(bundle)],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=60,
+        env=env,
+    )
+    assert result.stdout.strip() == _manifest(bundle)["native_logical_id"]
 
 
 def _f32(bits):
@@ -995,7 +1158,7 @@ def _matrix_values(value_type, nrows):
             [complex(-0.0, 0.0), complex(_f64(0x7FF8000000000002), 1), -1, 0][:nrows],
             dtype=np.complex128,
         )
-    return np.array(["", "é𝄞", "x" * 300, "plain"][:nrows], dtype=object)
+    return np.array(["", "é𝄞", "x" * 300, "a\x00b"][:nrows], dtype=object)
 
 
 MATRIX_TYPES = [
@@ -1013,8 +1176,8 @@ MATRIX_TYPES = [
 ]
 
 
-def test_dtype_matrix_restores_bit_for_bit(zarr_lib, daskms, tmp_path):
-    source, state = _source(tmp_path, ntime=2)
+def test_dtype_matrix_restores_bit_for_bit(zarr_lib, arcae, tmp_path):
+    source, state = _source(tmp_path, ntime=4)
     with table(str(source), readonly=False, ack=False) as tab:
         nrows = tab.nrows()
         for value_type in MATRIX_TYPES:
@@ -1100,7 +1263,7 @@ def _relayout_in_place(zarr, root, **layout):
 
 
 @pytest.mark.parametrize("which", ["payload", "msv4", "both"])
-def test_lossless_relayout_of_either_tree_keeps_the_bundle_valid(zarr_lib, daskms, tmp_path, which):
+def test_lossless_relayout_of_either_tree_keeps_the_bundle_valid(zarr_lib, arcae, tmp_path, which):
     from zarr.codecs import GzipCodec
 
     source, state = _source(tmp_path, ntime=3)
@@ -1128,12 +1291,12 @@ def test_lossless_relayout_of_either_tree_keeps_the_bundle_valid(zarr_lib, daskm
     _assert_same_tables(source, target, ["", "::ANTENNA"])
 
 
-def test_payload_changed_after_planning_is_not_published(zarr_lib, daskms, tmp_path):
+def test_payload_changed_after_planning_is_not_published(zarr_lib, arcae, tmp_path):
     source, state = _source(tmp_path, ntime=2)
     bundle = capture_native_preservation(source, state, tmp_path / "bundle")
     target = tmp_path / "target.ms"
 
-    class SwappingWriter(native.DaskMsWriter):
+    class SwappingWriter(native.ArcaeWriter):
         def write(self, plan, destination):
             time = zarr_lib.open_array(
                 zarr_lib.storage.LocalStore(str(plan.payload / "MAIN" / "TIME")), mode="r+"
@@ -1149,12 +1312,12 @@ def test_payload_changed_after_planning_is_not_published(zarr_lib, daskms, tmp_p
     assert not list(tmp_path.glob(".target.ms.*"))
 
 
-def test_verification_names_the_first_differing_row(zarr_lib, daskms, tmp_path):
+def test_verification_names_the_first_differing_row(zarr_lib, arcae, tmp_path):
     source, state = _source(tmp_path, ntime=3)
     bundle = capture_native_preservation(source, state, tmp_path / "bundle")
     target = tmp_path / "target.ms"
 
-    class CorruptingWriter(native.DaskMsWriter):
+    class CorruptingWriter(native.ArcaeWriter):
         def write(self, plan, destination):
             super().write(plan, destination)
             with table(str(destination), readonly=False, ack=False) as tab:
@@ -1167,7 +1330,7 @@ def test_verification_names_the_first_differing_row(zarr_lib, daskms, tmp_path):
     assert not target.exists()
 
 
-def test_real_msv2_export_exact_restore_and_reexport(zarr_lib, daskms, tmp_path):
+def test_real_msv2_export_exact_restore_and_reexport(zarr_lib, arcae, tmp_path):
     pytest.importorskip("xarray_ms")
     import xarray as xr
     import xarray.testing as xt

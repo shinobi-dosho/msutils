@@ -4,11 +4,13 @@
 
 ### Added
 
-- An assessment of dask-ms 0.3.0a1 in the reconstruction documentation and
-  regression coverage for the writer's refusal of untested backend versions.
-  The `exact-native` dependency stays pinned to 0.2.32: the alpha's default
-  table concurrency exhausted file descriptors in the restoration checks,
-  and its arcae requirement conflicts with the reconstruction probe pin.
+- Exact-native restoration writes column values directly with arcae 0.5.4
+  in serial, explicitly indexed row batches, with one table instance.
+  Schema and metadata construction and independent verification remain
+  python-casacore. The `exact-native` extra replaces dask-ms 0.2.32 with
+  arcae 0.5.4; bundle versions, fidelity, refusal scope and logical IDs are
+  unchanged. The earlier dask-ms 0.3 alpha assessment remains documented
+  as historical evidence.
 - Correlation selection for `subset()` and `average()`: `corrs=["XX", "YY"]`
   or repeatable `--corr XX --corr YY` options keep names or zero-based indices
   in the requested order. Each polarization setup in use is resolved
@@ -19,7 +21,7 @@
   `capture_native_preservation()` while the source MS exists, then
   `to_msv2(..., fidelity="exact-native-v1", preservation=...)` or
   `msutils materialize --fidelity exact-native-v1 --preservation ...`
-  (`exact-native` extra, pinned dask-ms 0.2.32). The bundle (schema
+  (`exact-native` extra, pinned arcae 0.5.4). The bundle (schema
   `msutils-native-preservation/v2`) is `manifest.json` plus `native.zarr`, a
   Zarr v3 hierarchy holding every defined column in its exact casacore type
   -- booleans stay booleans, `uchar` is `uint8`, strings are variable-length

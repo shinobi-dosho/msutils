@@ -283,28 +283,39 @@ before a bundle can be bound to it.
 Dependency boundary
 -------------------
 
-The ``exact-native`` extra currently pins dask-ms 0.2.32 as a temporary,
-established writer backend. Capture and the mandatory independent read-back
-verification use python-casacore, already a base dependency of ``msutils``;
-the payload and the logical IDs of Zarr trees need zarr from the ``msv4``
-extra (``zarr>=3.1``), which ``exact-native`` includes.
-:func:`~msutils.native_logical_id` needs only the base install.
-The reconstruction plan and preservation bundle remain backend-neutral so the
-writer can move to xarray-ms once its MSv2 writing support is ready; exact-mode
-semantics must not depend on dask-ms-specific objects.
+The ``exact-native`` extra pins arcae 0.5.4 for bounded column-value writes.
+Schema creation, descriptors, storage managers, table and column keywords,
+subtable references and table info still use python-casacore: arcae 0.5.4
+has no generic table-creation or keyword/info setters. Those handles close
+before each table is reopened by arcae with one instance and a cache size of
+one. Writes select explicit native row indices, process columns serially,
+and use bounded row batches. Undefined columns remain unwritten. There is
+no writer fallback; an untested arcae version refuses with ``arcae-version``.
 
-The separate ``reconstruction`` extra pins arcae only for the Phase 0
-capability probes above. Installing it does not select the public exact-native
-writer.
+Capture and mandatory independent read-back verification use python-casacore,
+already a base dependency of ``msutils``. The payload and the logical IDs of
+Zarr trees need zarr from the ``msv4`` extra (``zarr>=3.1``), which
+``exact-native`` includes. :func:`~msutils.native_logical_id` needs only the
+base install. The reconstruction plan and preservation bundle remain
+backend-neutral. Exact restoration does not import dask-ms or depend on an
+xarray-ms semantic writer. The fidelity/profile, schema and native model
+versions and logical IDs are unchanged by this backend migration.
+
+The separate ``reconstruction`` extra uses the same arcae pin for the Phase 0
+capability probes above. The restoration gate additionally exercises every
+accepted type in scalar, fixed-array and uniform variable-array columns,
+including integer extrema, signed zeros, NaN payloads, Unicode and embedded
+NUL strings, with independent bytewise casacore read-back.
 
 dask-ms 0.3 alpha assessment
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-For `issue #55 <https://github.com/shinobi-dosho/msutils/issues/55>`_, the
-existing restoration checks were also run against dask-ms 0.3.0a1, arcae
+Before the direct arcae migration, for
+`issue #55 <https://github.com/shinobi-dosho/msutils/issues/55>`_, the existing
+restoration checks were also run against dask-ms 0.3.0a1, arcae
 0.4.0a14 and rarg-python-patterns 0.0.5 on Python 3.13. The experiment used an
 isolated package overlay and temporarily bypassed ``DaskMsWriter``'s version
-check; the supported writer still refuses every version except 0.2.32.
+check; the writer at the time refused every version except 0.2.32.
 
 Eight of the nine selected checks passed with the alpha's default settings.
 The final check failed opening a FEED table with ``Too many open files``.
@@ -316,11 +327,12 @@ post-planning payload changes and verification's first-differing-row report.
 This demonstrates compatibility of the exercised writes when table-instance
 concurrency is bounded; it does not establish support for the new backend.
 
-The pin remains unchanged. The alpha requires ``arcae>=0.4.0a14,<0.5``,
-which conflicts with the independent ``reconstruction`` probe's 0.5.4 pin.
-A migration must resolve that dependency conflict and bound table handles
-before widening the writer's version check. ``msutils`` already declares
-python-casacore directly and requires Python 3.11 or later. Its writer uses
-the public ``xds_to_table`` API, with no dependency on ``TableProxy`` or the
-removed dask-ms modules, and the native payload uses zarr directly rather
-than dask-ms's Zarr storage layer.
+That assessment kept the pin unchanged. The alpha requires
+``arcae>=0.4.0a14,<0.5``, which conflicts with the independent
+``reconstruction`` probe's 0.5.4 pin.
+It identified the dependency conflict and unbounded table handles as
+migration constraints. ``msutils`` already declares python-casacore directly
+and requires Python 3.11 or later. The assessed writer used the public
+``xds_to_table`` API, with no dependency on ``TableProxy`` or the removed
+dask-ms modules, and the native payload uses zarr directly rather than
+dask-ms's Zarr storage layer.

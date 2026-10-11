@@ -1441,31 +1441,29 @@ def _payload_rows(zarr: Any, store: Any, table_id: str, col: dict[str, Any]):
 
     def read(start: int, stop: int) -> np.ndarray:
         values = np.asarray(array[start:stop])
-        # dask-ms rejects numpy's StringDType, which zarr returns for vlen strings.
+        # arcae accepts object strings; zarr returns numpy's vlen StringDType.
         return values.astype(object) if col["dtype"] == "string" else values
 
     return read
 
 
-class DaskMsWriter:
-    """Write a validated plan into a private, newly created MSv2 table."""
+class ArcaeWriter:
+    """Build schema/metadata with casacore and write bounded values with arcae."""
 
     def __init__(self):
         try:
             from importlib.metadata import version
 
-            installed = version("dask-ms")
+            installed = version("arcae")
         except ImportError as exc:  # pragma: no cover
             raise ImportError("exact-native MSv2 writing needs msutils[exact-native]") from exc
-        if installed != "0.2.32":
+        if installed != "0.5.4":
             raise NativePreservationRefusal(
-                "dask-ms-version", f"tested version 0.2.32, got {installed}"
+                "arcae-version", f"tested version 0.5.4, got {installed}"
             )
 
     def write(self, plan: ReconstructionPlan, destination: Path) -> None:
-        import dask.array as da
-        import xarray as xr
-        from daskms import xds_to_table
+        from arcae.lib.arrow_tables import Table
 
         zarr, store = _open_payload(plan)
         for item in plan.tables:
@@ -1498,22 +1496,19 @@ class DaskMsWriter:
                 continue
             readers = {col["name"]: _payload_rows(zarr, store, table_id, col) for col in columns}
             batch = _batch_rows(columns, item["rows"])
-            for start in range(0, item["rows"], batch):
-                stop = min(start + batch, item["rows"])
-                variables = {
-                    "ROWID": (
-                        ("row",),
-                        da.from_array(np.arange(start, stop, dtype=np.int64), chunks=stop - start),
-                    )
-                }
-                for col in columns:
-                    values = readers[col["name"]](start, stop)
-                    dims = ("row", *(f"{col['name']}_axis{i}" for i in range(values.ndim - 1)))
-                    variables[col["name"]] = (dims, da.from_array(values, chunks=values.shape))
-                dataset = xr.Dataset(variables)
-                writes = xds_to_table(dataset, str(path), columns=[col["name"] for col in columns])
-                for write in writes:
-                    write.compute()
+            # Schema and metadata handles are closed before arcae opens its own
+            # casacore instance. A single instance bounds handles and keeps
+            # indexed writes serial in native row and column order.
+            with Table.from_filename(
+                str(path), readonly=False, ninstances=1, cache_size=1
+            ) as target:
+                for start in range(0, item["rows"], batch):
+                    stop = min(start + batch, item["rows"])
+                    rows = np.arange(start, stop, dtype=np.int64)
+                    for col in columns:
+                        values = readers[col["name"]](start, stop)
+                        index = (rows,) + (None,) * (values.ndim - 1)
+                        target.putcol(col["name"], values, index=index)
 
 
 def _same_cell(actual: np.ndarray, expected: np.ndarray) -> bool:
@@ -1718,7 +1713,7 @@ def materialize_exact_native(
             "native-id-mismatch",
             f"bundle restores {plan.native_logical_id}, expected {expected_native_logical_id}",
         )
-    writer = DaskMsWriter() if writer is None else writer
+    writer = ArcaeWriter() if writer is None else writer
     destination.parent.mkdir(parents=True, exist_ok=True)
     stage_root = Path(tempfile.mkdtemp(prefix=f".{destination.name}.", dir=destination.parent))
     stage = stage_root / "candidate.ms"
