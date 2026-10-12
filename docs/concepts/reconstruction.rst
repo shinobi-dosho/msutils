@@ -219,6 +219,16 @@ shapes or renumber managers, so the v2 ID covers logical native content and
 declared manager settings rather than byte-identical physical layout. Unknown
 manager types or fields refuse.
 
+A source may retain an inactive hypercolumn after casacore removes its data
+column. The descriptor, including that stale definition, remains part of native
+identity. Exact restoration supports the qualified case of one missing data
+column in a three-dimensional hypercolumn, without coordinate or ID columns
+or surviving manager bindings. It creates a private zero-row table with a
+temporary array descriptor, removes that column, and checks exact column order,
+typed descriptor and canonical manager identity before adding rows or writing
+values. No placeholder values or columns survive. Other orphan forms refuse;
+no hypercolumn definitions are discarded or excluded from hashing.
+
 Because the bindings are logical, **either tree may be rechunked,
 recompressed, resharded or re-encoded losslessly** (any layout the reading
 policy admits) and the pair stays valid. Changing one value, attribute,

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Fixed
+
+- Exact-native reconstruction preserves inactive three-dimensional hypercolumns
+  whose sole data column was removed by casacore. Private zero-row placeholder
+  creation and removal reproduces the original descriptor before value writes;
+  exact schema and canonical manager checks refuse cleanup drift. Native IDs,
+  profiles and preservation manifests remain unchanged. Unsupported orphan
+  forms refuse rather than dropping hashed metadata.
+
 ### Added
 
 - Logical Zarr reading accepts published Numcodecs PackBits for boolean arrays
