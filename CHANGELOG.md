@@ -4,6 +4,15 @@
 
 ### Added
 
+- Logical Zarr reading accepts published Numcodecs PackBits for boolean arrays
+  and Delta for unchanged native integer dtypes with a native-endian bytes
+  serializer. Invalid combinations and configurations fail before decoding;
+  logical IDs and golden vectors are unchanged.
+- `capture_native_preservation(..., semantic_filters=...)` optionally selects
+  `packbits`, `delta` or `packbits-delta` for boolean and integer payload columns.
+  Native dtypes, preservation profiles and all logical IDs remain unchanged;
+  the default storage path remains unchanged.
+
 - Exact-native profile `fixed-shape-defined-or-empty/v2` now captures typed
   empty column keyword arrays, uniformly defined zero-length cells, and
   TiledColumn/TiledShape storage managers. Typed empty keyword arrays retain
