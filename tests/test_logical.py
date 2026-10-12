@@ -345,6 +345,75 @@ def test_lossless_relayout_keeps_the_id(zarr_lib, tmp_path, layout):
     assert variant == base
 
 
+@pytest.mark.parametrize("shape", [(17,), (3, 11), (), (0, 7)])
+def test_packbits_round_trip_keeps_logical_id(zarr_lib, tmp_path, shape):
+    from zarr.codecs import PackBits
+
+    values = (np.arange(np.prod(shape, dtype=int)).reshape(shape) % 3 == 0)
+    root = tmp_path / "packbits.zarr"
+    group = zarr_lib.open_group(root, mode="w", zarr_format=3)
+    chunks = tuple(max(1, min(5, extent)) for extent in shape)
+    group.create_array("a", data=values, chunks=chunks, filters=[PackBits()])
+    assert logical_id(root) == _memory_id({"children": {"a": _leaf(values)}})
+    reopened = zarr_lib.open_group(root, mode="r", use_consolidated=False)
+    assert np.array_equal(reopened["a"][...], values)
+
+
+@pytest.mark.parametrize("dtype", ["int8", "int16", "int32", "int64", "uint8", "uint16", "uint32", "uint64"])
+def test_delta_round_trip_extrema_and_wraparound(zarr_lib, tmp_path, dtype):
+    from zarr.codecs import Delta
+
+    limits = np.iinfo(dtype)
+    values = np.array([limits.max, limits.min, limits.max, 0, limits.min, 1, limits.max, limits.min, 4, 5, 6, 7], dtype=dtype).reshape(3, 4)
+    values = np.asfortranarray(values)
+    root = tmp_path / "delta.zarr"
+    group = zarr_lib.open_group(root, mode="w", zarr_format=3)
+    group.create_array("a", data=values, chunks=(2, 3), filters=[Delta(dtype=dtype)])
+    assert logical_id(root) == _memory_id({"children": {"a": _leaf(values)}})
+    reopened = zarr_lib.open_group(root, mode="r", use_consolidated=False)
+    assert np.array_equal(reopened["a"][...], values)
+
+
+def test_semantic_filter_inside_sharding_and_outer_transpose_refusal(zarr_lib, tmp_path):
+    from zarr.codecs import PackBits
+
+    values = np.arange(77).reshape(7, 11) % 3 == 0
+    root = tmp_path / "sharded.zarr"
+    group = zarr_lib.open_group(root, mode="w", zarr_format=3)
+    group.create_array("a", data=values, chunks=(2, 3), shards=(4, 6), filters=[PackBits()])
+    assert logical_id(root) == _memory_id({"children": {"a": _leaf(values)}})
+    document = _meta(root / "a")
+    document["codecs"].insert(0, {"name": "transpose", "configuration": {"order": [1, 0]}})
+    _put_meta(root / "a", document)
+    _refused(root, "zarr-codec")
+
+
+@pytest.mark.parametrize("codecs,dtype", [
+    ([{"name": "numcodecs.packbits", "configuration": {"x": 1}}, {"name": "bytes"}], "bool"),
+    ([{"name": "numcodecs.packbits", "configuration": {}}, {"name": "numcodecs.packbits", "configuration": {}}, {"name": "bytes"}], "bool"),
+    ([{"name": "numcodecs.delta", "configuration": {"dtype": "int16"}}, {"name": "bytes", "configuration": {"endian": "little"}}], "int32"),
+    ([{"name": "numcodecs.delta", "configuration": {"dtype": ">i4"}}, {"name": "bytes", "configuration": {"endian": "little"}}], "int32"),
+    ([{"name": "numcodecs.delta", "configuration": {"dtype": "int32"}}, {"name": "bytes", "configuration": {"endian": "big"}}], "int32"),
+    ([{"name": "numcodecs.delta", "configuration": {}}, {"name": "bytes", "configuration": {"endian": "little"}}], "int32"),
+    ([{"name": "numcodecs.delta", "configuration": {"dtype": "int32", "astype": "int32"}}, {"name": "bytes", "configuration": {"endian": "little"}}], "int32"),
+    ([{"name": "numcodecs.delta", "configuration": {"dtype": "float32"}}, {"name": "bytes", "configuration": {"endian": "little"}}], "float32"),
+    ([{"name": "numcodecs.delta", "configuration": {"dtype": "bool"}}, {"name": "bytes"}], "bool"),
+    ([{"name": "numcodecs.delta", "configuration": {"dtype": "int32"}}, {"name": "bytes"}], "U3"),
+    ([{"name": "numcodecs.packbits", "configuration": {}}, {"name": "bytes", "configuration": {"endian": "little"}}], "int32"),
+    ([{"name": "bytes", "configuration": {"endian": "little"}}, {"name": "numcodecs.delta", "configuration": {"dtype": "int32"}}], "int32"),
+    ([{"name": "transpose", "configuration": {"order": [1, 0]}}, {"name": "numcodecs.delta", "configuration": {"dtype": "int32"}}, {"name": "bytes", "configuration": {"endian": "little"}}], "int32"),
+    ([{"name": "numcodecs.delta", "configuration": {"dtype": "int32"}}, {"name": "transpose", "configuration": {"order": [1, 0]}}, {"name": "bytes", "configuration": {"endian": "little"}}], "int32"),
+])
+def test_semantic_codec_metadata_refusals(zarr_lib, tmp_path, codecs, dtype):
+    root = tmp_path / "refusal.zarr"
+    group = zarr_lib.open_group(root, mode="w", zarr_format=3)
+    group.create_array("a", data=np.zeros((2, 3), dtype=dtype))
+    document = _meta(root / "a")
+    document["codecs"] = codecs
+    _put_meta(root / "a", document)
+    _refused(root, "zarr-codec")
+
+
 def _change(tree, path, fn):
     tree = copy.deepcopy(tree)
     *parents, name = path
