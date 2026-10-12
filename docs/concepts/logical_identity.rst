@@ -346,3 +346,12 @@ Residual risks:
   re-reading ``zarr.json`` narrows the window for metadata only.
 * Zero-size arrays have no blocks: a ``(0, 3)`` array and a ``(3, 0)`` array
   differ only through ``shape`` in the header, as intended.
+
+Native preservation capture can select ``semantic_filters="packbits"``,
+``"delta"`` or ``"packbits-delta"``. PackBits applies only to native boolean
+columns and Delta only to native integers with their unchanged dtype. Other
+columns retain Zstd level 3 with checksums. The default ``None`` preserves the
+existing storage path. These selections change physical codec metadata only:
+preservation profiles, native IDs, payload IDs and companion MSv4 IDs remain
+unchanged. Capture validates the selection before opening sources or staging
+output, and re-hashes the stored payload before publication.

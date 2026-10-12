@@ -576,11 +576,15 @@ def _validate_codecs(
             ):
                 raise _refuse("zarr-codec", relative, "transpose must permute the array axes")
             if semantic_seen:
-                raise _refuse("zarr-codec", relative, "transpose cannot be combined with a semantic filter")
+                raise _refuse(
+                    "zarr-codec", relative, "transpose cannot be combined with a semantic filter"
+                )
             transpose_seen = True
         elif name in ("numcodecs.packbits", "numcodecs.delta"):
             if stage != "array" or semantic_seen or transpose_seen:
-                raise _refuse("zarr-codec", relative, "semantic filter must be the sole array filter")
+                raise _refuse(
+                    "zarr-codec", relative, "semantic filter must be the sole array filter"
+                )
             if name == "numcodecs.packbits":
                 _codec_config(codec, set(), relative)
                 if data_type != "bool":
@@ -588,14 +592,23 @@ def _validate_codecs(
             else:
                 config = _codec_config(codec, {"dtype"}, relative)
                 declared = config.get("dtype")
-                if not isinstance(data_type, str) or data_type not in _NUMERIC or not data_type.startswith(("int", "uint")) or not isinstance(declared, str):
-                    raise _refuse("zarr-codec", relative, "delta requires an integer dtype configuration")
+                if (
+                    not isinstance(data_type, str)
+                    or data_type not in _NUMERIC
+                    or not data_type.startswith(("int", "uint"))
+                    or not isinstance(declared, str)
+                ):
+                    raise _refuse(
+                        "zarr-codec", relative, "delta requires an integer dtype configuration"
+                    )
                 try:
                     exact = np.dtype(declared) == np.dtype(data_type)
                 except (TypeError, ValueError):
                     exact = False
                 if not exact:
-                    raise _refuse("zarr-codec", relative, "delta dtype must match the native array dtype")
+                    raise _refuse(
+                        "zarr-codec", relative, "delta dtype must match the native array dtype"
+                    )
             semantic_seen = True
             delta_seen = name == "numcodecs.delta"
         elif name in ("bytes", "vlen-utf8", "sharding_indexed"):
@@ -610,7 +623,9 @@ def _validate_codecs(
                 ):
                     raise _refuse("zarr-codec", relative, "invalid bytes codec for this dtype")
                 if delta_seen and itemsize != 1 and endian != sys.byteorder:
-                    raise _refuse("zarr-codec", relative, "delta needs native-endian bytes decoding")
+                    raise _refuse(
+                        "zarr-codec", relative, "delta needs native-endian bytes decoding"
+                    )
             elif name == "vlen-utf8":
                 _codec_config(codec, set(), relative)
                 if data_type != "string":

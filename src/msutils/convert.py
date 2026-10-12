@@ -21,7 +21,7 @@ import logging
 import os
 import shutil
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, Literal
 
 from .info import MSInfo, msinfo
 
@@ -127,7 +127,12 @@ def to_msv2(
 
 
 def capture_native_preservation(
-    source_ms: str, msv4: str, bundle: str, *, block_rows: int | None = None
+    source_ms: str,
+    msv4: str,
+    bundle: str,
+    *,
+    block_rows: int | None = None,
+    semantic_filters: Literal["packbits", "delta", "packbits-delta"] | None = None,
 ):
     """Capture a versioned, data-only exact-native bundle for one MSv4 state.
 
@@ -149,10 +154,17 @@ def capture_native_preservation(
             to about 64 MiB decoded (4096 rows for strings). It is a storage
             choice only: it does not change any logical ID, and a chunk above
             2 GiB decoded is refused with ``chunk-size``.
+        semantic_filters: Optional lossless storage selection: ``packbits`` for
+            boolean columns, ``delta`` for integer columns, or ``packbits-delta``
+            for both. Other columns retain Zstd. Native dtypes, preservation
+            profiles and all three logical IDs are unchanged. The default
+            ``None`` preserves the existing payload storage path.
     """
     from ._native_preservation import capture_native_preservation as capture
 
-    return capture(source_ms, msv4, bundle, block_rows=block_rows)
+    return capture(
+        source_ms, msv4, bundle, block_rows=block_rows, semantic_filters=semantic_filters
+    )
 
 
 def native_logical_id(ms: str) -> str:

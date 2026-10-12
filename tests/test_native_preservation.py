@@ -1535,3 +1535,45 @@ def test_real_msv2_export_exact_restore_and_reexport(zarr_lib, arcae, tmp_path):
         target,
         ["", "::PROCESSOR", "::FEED", "::FIELD", "::OBSERVATION", "::SPECTRAL_WINDOW"],
     )
+
+
+@pytest.mark.parametrize("selection", ["packbits", "delta", "packbits-delta"])
+def test_semantic_payload_preserves_ids_and_source_independent_restore(
+    zarr_lib, arcae, tmp_path, selection
+):
+    source, state = _source(tmp_path, ntime=3)
+    baseline = capture_native_preservation(source, state, tmp_path / "baseline", block_rows=2)
+    selected = capture_native_preservation(
+        source, state, tmp_path / "selected", block_rows=2, semantic_filters=selection
+    )
+    before, after = _manifest(baseline), _manifest(selected)
+    assert before == after
+    flags = json.loads((selected / "native.zarr/MAIN/FLAG/zarr.json").read_text())
+    integers = json.loads((selected / "native.zarr/MAIN/ANTENNA1/zarr.json").read_text())
+    assert ("numcodecs.packbits" in [item["name"] for item in flags["codecs"]]) == (
+        "packbits" in selection
+    )
+    assert ("numcodecs.delta" in [item["name"] for item in integers["codecs"]]) == (
+        "delta" in selection
+    )
+    source.rename(tmp_path / "hidden.ms")
+    restored = tmp_path / "restored.ms"
+    materialize_exact_native(state, restored, selected)
+    assert native_logical_id(restored) == before["native_logical_id"]
+    assert verify_native_preservation(state, selected)
+    payload = zarr_lib.open_group(selected / "native.zarr", mode="a")
+    payload["MAIN/ANTENNA1"][0] = 999
+    with pytest.raises(NativePreservationRefusal):
+        verify_native_preservation(state, selected)
+
+
+@pytest.mark.parametrize("selection", ["", "zstd", "PACKBITS", True, [], {}])
+def test_semantic_payload_invalid_option_before_io(tmp_path, selection):
+    with pytest.raises(ValueError, match="semantic_filters"):
+        capture_native_preservation(
+            tmp_path / "missing.ms",
+            tmp_path / "missing.zarr",
+            tmp_path / "bundle",
+            semantic_filters=selection,
+        )
+    assert list(tmp_path.iterdir()) == []

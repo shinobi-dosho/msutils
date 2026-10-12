@@ -43,7 +43,7 @@ from contextlib import ExitStack, contextmanager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 from casacore.tables import table, taql
@@ -850,13 +850,30 @@ def _column_values(
     return array
 
 
+SemanticFilters = Literal["packbits", "delta", "packbits-delta"]
+
+
+def _semantic_filters(mode: SemanticFilters | None, dtype):
+    """Choose one lossless array filter without changing its native dtype."""
+    if dtype.kind == "b" and mode in ("packbits", "packbits-delta"):
+        from zarr.codecs import PackBits
+
+        return [PackBits()]
+    if dtype.kind in "iu" and mode in ("delta", "packbits-delta"):
+        from zarr.codecs import Delta
+
+        return [Delta(dtype=dtype.name)]
+    return []
+
+
 class _PayloadSink:
     """Writes ``native.zarr`` with explicit, version-independent metadata."""
 
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, semantic_filters: SemanticFilters | None = None):
         import zarr
         from zarr.storage import LocalStore
 
+        self.semantic_filters = semantic_filters
         self._zarr = zarr
         self._store = LocalStore(str(root))
         zarr.create_group(store=self._store, zarr_format=3, attributes={})
@@ -867,6 +884,10 @@ class _PayloadSink:
     def column(self, table_id: str, name: str, tag: str, shape: tuple[int, ...], rows: int):
         from zarr.codecs import BytesCodec, VLenUTF8Codec, ZstdCodec
 
+        filters = _semantic_filters(self.semantic_filters, np.dtype(tag)) if tag != "string" else []
+        endian = (
+            ("little" if np.little_endian else "big") if filters and tag != "bool" else "little"
+        )
         # write_empty_chunks: with zarr's default, a chunk "equal" to the fill
         # value is not written, and that equality is not bitwise for complex
         # signed zeros or NaN payloads -- the values would silently change.
@@ -876,9 +897,13 @@ class _PayloadSink:
             shape=shape,
             dtype=str if tag == "string" else tag,
             chunks=(rows, *(max(1, extent) for extent in shape[1:])),
-            serializer=VLenUTF8Codec() if tag == "string" else BytesCodec(endian="little"),
+            serializer=VLenUTF8Codec() if tag == "string" else BytesCodec(endian=endian),
+            filters=filters,
             compressors=[ZstdCodec(level=3, checksum=True)],
-            config={"write_empty_chunks": True},
+            config={
+                "write_empty_chunks": True,
+                **({"order": "C"} if self.semantic_filters is not None else {}),
+            },
             zarr_format=3,
             attributes={},
         )
@@ -950,7 +975,11 @@ def _capture_table(
                         )
                 hasher.update(values)
                 if array is not None:
-                    array[start : start + count] = values
+                    array[start : start + count] = (
+                        np.ascontiguousarray(values)
+                        if sink.semantic_filters is not None
+                        else values
+                    )
             columns.append(
                 {
                     "name": name,
@@ -1086,6 +1115,7 @@ def capture_native_preservation(
     bundle: str | os.PathLike,
     *,
     block_rows: int | None = None,
+    semantic_filters: SemanticFilters | None = None,
 ) -> Path:
     """Capture a complete fixed-shape native bundle, bound to an MSv4 logical ID.
 
@@ -1093,6 +1123,11 @@ def capture_native_preservation(
     leaves no bundle.  Every supported native component has one preservation
     entry, including empty subtables and all-undefined columns.
     """
+    if semantic_filters is not None and (
+        not isinstance(semantic_filters, str)
+        or semantic_filters not in ("packbits", "delta", "packbits-delta")
+    ):
+        raise ValueError("semantic_filters must be None, packbits, delta, or packbits-delta")
     if block_rows is not None and (
         isinstance(block_rows, bool) or not isinstance(block_rows, int) or block_rows < 1
     ):
@@ -1117,7 +1152,7 @@ def capture_native_preservation(
         destination.parent.mkdir(parents=True, exist_ok=True)
         stage = Path(tempfile.mkdtemp(prefix=f".{destination.name}.", dir=destination.parent))
         try:
-            sink = _PayloadSink(stage / _PAYLOAD)
+            sink = _PayloadSink(stage / _PAYLOAD, semantic_filters)
             tables = _read_native(handles, paths, source, sink, block_rows)
             if _source_state(source) != predecessor:
                 raise NativePreservationRefusal(
