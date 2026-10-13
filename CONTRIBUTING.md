@@ -158,6 +158,22 @@ don't cut releases** — that's a maintainer task. The maintainer bumps `version
 in `pyproject.toml` and publishes a GitHub Release, which triggers the publish
 workflow to build and upload to PyPI.
 
+## Repository protection
+
+The active `main` branch ruleset lives in GitHub repository settings.
+[`.github/main-ruleset.json`](https://github.com/shinobi-dosho/msutils/blob/main/.github/main-ruleset.json) records that policy;
+committing the file does not apply or update the setting. If the repository is
+recreated and has no ruleset, an admin can apply it once from the repository
+root:
+
+```bash
+gh api -X POST "repos/$(gh repo view --json nameWithOwner --jq .nameWithOwner)/rulesets" \
+  --input .github/main-ruleset.json
+```
+
+Check for an existing ruleset before running this command, because `POST`
+creates another one rather than updating the current rule.
+
 ## License
 
 By contributing, you agree that your contributions are licensed under the
