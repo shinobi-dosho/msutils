@@ -43,7 +43,7 @@ from contextlib import ExitStack, contextmanager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 from casacore.tables import table, taql
@@ -850,13 +850,30 @@ def _column_values(
     return array
 
 
+SemanticFilters = Literal["packbits", "delta", "packbits-delta"]
+
+
+def _semantic_filters(mode: SemanticFilters | None, dtype):
+    """Choose one lossless array filter without changing its native dtype."""
+    if dtype.kind == "b" and mode in ("packbits", "packbits-delta"):
+        from zarr.codecs import PackBits
+
+        return [PackBits()]
+    if dtype.kind in "iu" and mode in ("delta", "packbits-delta"):
+        from zarr.codecs import Delta
+
+        return [Delta(dtype=dtype.name)]
+    return []
+
+
 class _PayloadSink:
     """Writes ``native.zarr`` with explicit, version-independent metadata."""
 
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, semantic_filters: SemanticFilters | None = None):
         import zarr
         from zarr.storage import LocalStore
 
+        self.semantic_filters = semantic_filters
         self._zarr = zarr
         self._store = LocalStore(str(root))
         zarr.create_group(store=self._store, zarr_format=3, attributes={})
@@ -867,6 +884,10 @@ class _PayloadSink:
     def column(self, table_id: str, name: str, tag: str, shape: tuple[int, ...], rows: int):
         from zarr.codecs import BytesCodec, VLenUTF8Codec, ZstdCodec
 
+        filters = _semantic_filters(self.semantic_filters, np.dtype(tag)) if tag != "string" else []
+        endian = (
+            ("little" if np.little_endian else "big") if filters and tag != "bool" else "little"
+        )
         # write_empty_chunks: with zarr's default, a chunk "equal" to the fill
         # value is not written, and that equality is not bitwise for complex
         # signed zeros or NaN payloads -- the values would silently change.
@@ -876,9 +897,13 @@ class _PayloadSink:
             shape=shape,
             dtype=str if tag == "string" else tag,
             chunks=(rows, *(max(1, extent) for extent in shape[1:])),
-            serializer=VLenUTF8Codec() if tag == "string" else BytesCodec(endian="little"),
+            serializer=VLenUTF8Codec() if tag == "string" else BytesCodec(endian=endian),
+            filters=filters,
             compressors=[ZstdCodec(level=3, checksum=True)],
-            config={"write_empty_chunks": True},
+            config={
+                "write_empty_chunks": True,
+                **({"order": "C"} if self.semantic_filters is not None else {}),
+            },
             zarr_format=3,
             attributes={},
         )
@@ -950,7 +975,11 @@ def _capture_table(
                         )
                 hasher.update(values)
                 if array is not None:
-                    array[start : start + count] = values
+                    array[start : start + count] = (
+                        np.ascontiguousarray(values)
+                        if sink.semantic_filters is not None
+                        else values
+                    )
             columns.append(
                 {
                     "name": name,
@@ -1086,6 +1115,7 @@ def capture_native_preservation(
     bundle: str | os.PathLike,
     *,
     block_rows: int | None = None,
+    semantic_filters: SemanticFilters | None = None,
 ) -> Path:
     """Capture a complete fixed-shape native bundle, bound to an MSv4 logical ID.
 
@@ -1093,6 +1123,11 @@ def capture_native_preservation(
     leaves no bundle.  Every supported native component has one preservation
     entry, including empty subtables and all-undefined columns.
     """
+    if semantic_filters is not None and (
+        not isinstance(semantic_filters, str)
+        or semantic_filters not in ("packbits", "delta", "packbits-delta")
+    ):
+        raise ValueError("semantic_filters must be None, packbits, delta, or packbits-delta")
     if block_rows is not None and (
         isinstance(block_rows, bool) or not isinstance(block_rows, int) or block_rows < 1
     ):
@@ -1117,7 +1152,7 @@ def capture_native_preservation(
         destination.parent.mkdir(parents=True, exist_ok=True)
         stage = Path(tempfile.mkdtemp(prefix=f".{destination.name}.", dir=destination.parent))
         try:
-            sink = _PayloadSink(stage / _PAYLOAD)
+            sink = _PayloadSink(stage / _PAYLOAD, semantic_filters)
             tables = _read_native(handles, paths, source, sink, block_rows)
             if _source_state(source) != predecessor:
                 raise NativePreservationRefusal(
@@ -1567,6 +1602,99 @@ def _payload_rows(zarr: Any, store: Any, table_id: str, col: dict[str, Any]):
     return read
 
 
+def _creation_descriptor(item: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    """Supply temporary data columns for a narrowly supported orphan hypercolumn."""
+    from casacore.tables import makearrcoldesc
+
+    desc = _decode(item["descriptor"])
+    managers = _decode(item["managers"])
+    temporary = []
+    original_columns = set(desc) - {"_define_hypercolumn_"}
+    hypercolumns = desc.get("_define_hypercolumn_", {})
+    if not isinstance(hypercolumns, dict):
+        raise NativePreservationRefusal(
+            "orphan-hypercolumn", "invalid hypercolumn record", table=item["id"]
+        )
+    for name, hypercolumn in hypercolumns.items():
+        if not isinstance(hypercolumn, dict):
+            raise NativePreservationRefusal(
+                "orphan-hypercolumn", "invalid hypercolumn definition", table=item["id"]
+            )
+        data = hypercolumn.get("HCdatanames")
+        if (
+            not isinstance(data, list)
+            or not data
+            or any(not isinstance(column, str) for column in data)
+        ):
+            raise NativePreservationRefusal(
+                "orphan-hypercolumn", "invalid hypercolumn data names", table=item["id"]
+            )
+        if all(column in original_columns for column in data):
+            continue
+        dimension = hypercolumn.get("HCndim")
+        # Qualify only an inactive, single-data-column array hypercolumn.
+        # Coordinate/id roles and partial removals need their own evidence.
+        if (
+            not isinstance(name, str)
+            or not _IDENTIFIER.fullmatch(name)
+            or set(hypercolumn) - {"HCndim", "HCdatanames", "HCcoordnames", "HCidnames"}
+            or len(data) != 1
+            or data[0] in desc
+            or data[0] in temporary
+            or not _IDENTIFIER.fullmatch(data[0])
+            or type(dimension) is not int
+            or dimension != 3
+            or any(
+                role in hypercolumn
+                and (not isinstance(hypercolumn[role], list) or bool(hypercolumn[role]))
+                for role in ("HCcoordnames", "HCidnames")
+            )
+            or any(
+                data[0] in manager.get("COLUMNS", []) or name == manager.get("NAME")
+                for manager in managers.values()
+            )
+        ):
+            raise NativePreservationRefusal(
+                "orphan-hypercolumn", "unsupported orphan hypercolumn definition", table=item["id"]
+            )
+        desc[data[0]] = makearrcoldesc(
+            data[0], 0.0, shape=[1] * (dimension - 1), valuetype="float"
+        )["desc"]
+        temporary.append(data[0])
+    return desc, temporary
+
+
+def _verify_table_schema(
+    tab: Any, item: dict[str, Any], path: Path, root: Path, model: str
+) -> None:
+    """Check exact column order/typed descriptor and the canonical manager contract."""
+    table_id = item["id"]
+    if tab.colnames() != [col["name"] for col in item["columns"]]:
+        raise NativePreservationRefusal(
+            "verify-column-order", "column order differs", table=table_id
+        )
+    # Use capture's extraction so typed empty keywords retain their native type.
+    actual_meta = _table_metadata(tab, path, table_id, root)
+    if _json_bytes(actual_meta["descriptor"]) != _json_bytes(item["descriptor"]):
+        actual = _decode(actual_meta["descriptor"])
+        expected = _decode(item["descriptor"])
+        different = sorted(
+            key
+            for key in set(actual) | set(expected)
+            if _json_bytes(_encode(actual.get(key))) != _json_bytes(_encode(expected.get(key)))
+        )
+        raise NativePreservationRefusal(
+            "verify-descriptor",
+            f"descriptor differs: {different}; first source={expected.get(different[0])!r}; target={actual.get(different[0])!r}",
+            table=table_id,
+        )
+    expected_managers = _decode(item["managers"])
+    if _json_bytes(_encode(_manager_identity(tab.getdminfo(), model))) != _json_bytes(
+        _encode(_manager_identity(expected_managers, model))
+    ):
+        raise NativePreservationRefusal("verify-manager", "storage manager differs", table=table_id)
+
+
 class ArcaeWriter:
     """Build schema/metadata with casacore and write bounded values with arcae."""
 
@@ -1589,12 +1717,22 @@ class ArcaeWriter:
         for item in plan.tables:
             table_id = item["id"]
             path = destination if table_id == "MAIN" else destination / table_id
-            desc = _decode(item["descriptor"])
+            desc, temporary = _creation_descriptor(item)
             managers = _decode(item["managers"])
             with table(
-                str(path), desc, nrow=item["rows"], readonly=False, dminfo=managers, ack=False
-            ):
-                pass
+                str(path),
+                desc,
+                nrow=0 if temporary else item["rows"],
+                readonly=False,
+                dminfo=managers,
+                ack=False,
+            ) as target:
+                if temporary:
+                    # Reproduce casacore's observable column-removal state without
+                    # dropping its hashed descriptor or writing placeholder values.
+                    target.removecols(temporary)
+                    _verify_table_schema(target, item, path, destination, plan.native_model)
+                    target.addrows(item["rows"])
         for item in plan.tables:
             table_id = item["id"]
             path = destination if table_id == "MAIN" else destination / table_id
@@ -1726,40 +1864,7 @@ def _verify_target(plan: ReconstructionPlan, destination: Path) -> None:
                     raise NativePreservationRefusal(
                         "verify-rows", "row count differs", table=table_id
                     )
-                if tab.colnames() != [col["name"] for col in item["columns"]]:
-                    raise NativePreservationRefusal(
-                        "verify-column-order", "column order differs", table=table_id
-                    )
-                desc = tab.getdesc()
-                desc.pop("_keywords_", None)
-                desc.pop("_private_keywords_", None)
-                # Apply capture's metadata extraction: typed empty arrays
-                # retain their dtype; bare empty string lists use native TaQL.
-                actual_meta = _table_metadata(tab, path, table_id, destination)
-                desc = _decode(actual_meta["descriptor"])
-                if _json_bytes(_encode(desc)) != _json_bytes(item["descriptor"]):
-                    expected = _decode(item["descriptor"])
-                    different = sorted(
-                        key
-                        for key in set(desc) | set(expected)
-                        if _json_bytes(_encode(desc.get(key)))
-                        != _json_bytes(_encode(expected.get(key)))
-                    )
-                    raise NativePreservationRefusal(
-                        "verify-descriptor",
-                        f"descriptor differs: {different}; first source={expected[different[0]]!r}; target={desc[different[0]]!r}",
-                        table=table_id,
-                    )
-                # Keep the raw bundle record for reconstruction and evidence, but
-                # compare the documented canonical identity. StandardStMan's
-                # IndexLength is derived physical bookkeeping, not MS state.
-                expected_managers = _decode(item["managers"])
-                if _json_bytes(
-                    _encode(_manager_identity(tab.getdminfo(), plan.native_model))
-                ) != _json_bytes(_encode(_manager_identity(expected_managers, plan.native_model))):
-                    raise NativePreservationRefusal(
-                        "verify-manager", "storage manager differs", table=table_id
-                    )
+                _verify_table_schema(tab, item, path, destination, plan.native_model)
                 if _json_bytes(_encode(tab.info())) != _json_bytes(item["info"]):
                     raise NativePreservationRefusal(
                         "verify-info",

@@ -274,6 +274,15 @@ before zarr-python opens anything.
 7. **Codec allowlist (lossless only)**, anything else being ``zarr-codec``:
 
    * array to array: ``transpose``, whose order must be a permutation;
+     ``numcodecs.packbits`` with empty configuration for ``bool`` arrays;
+     ``numcodecs.delta`` for signed or unsigned integer arrays with only a
+     ``dtype`` configuration matching the array's native dtype exactly.
+     At most one of these semantic filters may occur, before the serializer.
+     They cannot be combined with ``transpose``. Within a shard the semantic
+     filter must be in the inner codec chain, not ahead of sharding. For Delta
+     at widths above one byte, the ``bytes`` serializer must use native
+     endianness: older Zarr wrappers can silently reinterpret the decoded
+     Delta buffer when it does not;
    * array to bytes: ``bytes`` (endian ``little`` or ``big``, required unless
      the item size is 1); ``vlen-utf8`` (only for ``string``);
      ``sharding_indexed``, one level deep, with allowlisted inner codecs,
@@ -283,9 +292,10 @@ before zarr-python opens anything.
    * bytes to bytes: ``zstd``, ``gzip`` (levels 0--9), ``blosc`` (``lz4``,
      ``lz4hc``, ``blosclz``, ``zstd`` or ``zlib``) and ``crc32c``.
 
-   This refuses the whole ``numcodecs.*`` namespace, including the lossy
+   Other ``numcodecs.*`` codecs remain refused, including the lossy
    ``bitround``, ``quantize`` and ``fixedscaleoffset`` and anything that
-   might unpickle.
+   might unpickle. ``delta`` with ``astype`` is refused because it can change
+   the value width; PackBits and Delta only change the stored representation.
 8. **Ceilings** (``zarr-chunk-size``). A decoded (inner) chunk of a
    fixed-width type is at most 2 GiB; a ``string`` chunk holds at most
    2\ :sup:`24` elements; an unsharded chunk file is at most 2 GiB on disk.
@@ -336,3 +346,12 @@ Residual risks:
   re-reading ``zarr.json`` narrows the window for metadata only.
 * Zero-size arrays have no blocks: a ``(0, 3)`` array and a ``(3, 0)`` array
   differ only through ``shape`` in the header, as intended.
+
+Native preservation capture can select ``semantic_filters="packbits"``,
+``"delta"`` or ``"packbits-delta"``. PackBits applies only to native boolean
+columns and Delta only to native integers with their unchanged dtype. Other
+columns retain Zstd level 3 with checksums. The default ``None`` preserves the
+existing storage path. These selections change physical codec metadata only:
+preservation profiles, native IDs, payload IDs and companion MSv4 IDs remain
+unchanged. Capture validates the selection before opening sources or staging
+output, and re-hashes the stored payload before publication.

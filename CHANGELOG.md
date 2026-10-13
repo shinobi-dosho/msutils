@@ -2,7 +2,25 @@
 
 ## Unreleased
 
+### Fixed
+
+- Exact-native reconstruction preserves inactive three-dimensional hypercolumns
+  whose sole data column was removed by casacore. Private zero-row placeholder
+  creation and removal reproduces the original descriptor before value writes;
+  exact schema and canonical manager checks refuse cleanup drift. Native IDs,
+  profiles and preservation manifests remain unchanged. Unsupported orphan
+  forms refuse rather than dropping hashed metadata.
+
 ### Added
+
+- Logical Zarr reading accepts published Numcodecs PackBits for boolean arrays
+  and Delta for unchanged native integer dtypes with a native-endian bytes
+  serializer. Invalid combinations and configurations fail before decoding;
+  logical IDs and golden vectors are unchanged.
+- `capture_native_preservation(..., semantic_filters=...)` optionally selects
+  `packbits`, `delta` or `packbits-delta` for boolean and integer payload columns.
+  Native dtypes, preservation profiles and all logical IDs remain unchanged;
+  the default storage path remains unchanged.
 
 - Exact-native profile `fixed-shape-defined-or-empty/v2` now captures typed
   empty column keyword arrays, uniformly defined zero-length cells, and

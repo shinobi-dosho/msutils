@@ -12,9 +12,15 @@ import subprocess
 import sys
 import warnings
 
+import msfactory
 import numpy as np
 import pytest
-from casacore.tables import makearrcoldesc, makescacoldesc, table
+from casacore.tables import (
+    makearrcoldesc,
+    makescacoldesc,
+    table,
+    tabledefinehypercolumn,
+)
 from click.testing import CliRunner
 from msfactory import make_ms
 
@@ -1535,3 +1541,202 @@ def test_real_msv2_export_exact_restore_and_reexport(zarr_lib, arcae, tmp_path):
         target,
         ["", "::PROCESSOR", "::FEED", "::FIELD", "::OBSERVATION", "::SPECTRAL_WINDOW"],
     )
+
+
+@pytest.mark.parametrize("selection", ["packbits", "delta", "packbits-delta"])
+def test_semantic_payload_preserves_ids_and_source_independent_restore(
+    zarr_lib, arcae, tmp_path, selection
+):
+    source, state = _source(tmp_path, ntime=3)
+    baseline = capture_native_preservation(source, state, tmp_path / "baseline", block_rows=2)
+    selected = capture_native_preservation(
+        source, state, tmp_path / "selected", block_rows=2, semantic_filters=selection
+    )
+    before, after = _manifest(baseline), _manifest(selected)
+    assert before == after
+    flags = json.loads((selected / "native.zarr/MAIN/FLAG/zarr.json").read_text())
+    integers = json.loads((selected / "native.zarr/MAIN/ANTENNA1/zarr.json").read_text())
+    assert ("numcodecs.packbits" in [item["name"] for item in flags["codecs"]]) == (
+        "packbits" in selection
+    )
+    assert ("numcodecs.delta" in [item["name"] for item in integers["codecs"]]) == (
+        "delta" in selection
+    )
+    source.rename(tmp_path / "hidden.ms")
+    restored = tmp_path / "restored.ms"
+    materialize_exact_native(state, restored, selected)
+    assert native_logical_id(restored) == before["native_logical_id"]
+    assert verify_native_preservation(state, selected)
+    payload = zarr_lib.open_group(selected / "native.zarr", mode="a")
+    payload["MAIN/ANTENNA1"][0] = 999
+    with pytest.raises(NativePreservationRefusal):
+        verify_native_preservation(state, selected)
+
+
+@pytest.mark.parametrize("selection", ["", "zstd", "PACKBITS", True, [], {}])
+def test_semantic_payload_invalid_option_before_io(tmp_path, selection):
+    with pytest.raises(ValueError, match="semantic_filters"):
+        capture_native_preservation(
+            tmp_path / "missing.ms",
+            tmp_path / "missing.zarr",
+            tmp_path / "bundle",
+            semantic_filters=selection,
+        )
+    assert list(tmp_path.iterdir()) == []
+
+
+def _orphan_source(tmp_path, *, tiled_live=False):
+    original = msfactory.default_ms
+
+    def with_hypercolumn(path, descriptor):
+        descriptor = dict(descriptor)
+        descriptor["REMOVED_SPECTRUM"] = makearrcoldesc(
+            "REMOVED_SPECTRUM", 0.0, shape=[2, 3], valuetype="float"
+        )["desc"]
+        tabledefinehypercolumn(descriptor, "OrphanSpectrum", 3, ["REMOVED_SPECTRUM"])
+        return original(path, descriptor)
+
+    with pytest.MonkeyPatch.context() as patcher:
+        patcher.setattr(msfactory, "default_ms", with_hypercolumn)
+        source, state = _source(tmp_path)
+    with table(str(source), readonly=False, ack=False) as tab:
+        tab.removecols("REMOVED_SPECTRUM")
+        assert "REMOVED_SPECTRUM" not in tab.colnames()
+        assert tab.getdesc()["_define_hypercolumn_"]["OrphanSpectrum"] == {
+            "HCndim": 3,
+            "HCdatanames": ["REMOVED_SPECTRUM"],
+        }
+        if tiled_live:
+            live = makearrcoldesc("TILED_LIVE", 0j, shape=[2, 3], valuetype="complex")
+            tab.addcols(
+                live,
+                {
+                    "TYPE": "TiledColumnStMan",
+                    "NAME": "TILED_LIVE",
+                    "COLUMNS": ["TILED_LIVE"],
+                    "SPEC": {"DEFAULTTILESHAPE": [2, 2, 2]},
+                },
+            )
+            tab.putcol("TILED_LIVE", np.ones((tab.nrows(), 2, 3), dtype=np.complex64))
+            tab.putcolkeyword("DATA", "EMPTY_NATIVE", np.empty((0,), dtype=np.uint16))
+            tab.putcolkeyword("DATA", "EMPTY_TEXT", np.empty((0,), dtype="U1"))
+    return source, state
+
+
+@pytest.mark.parametrize("tiled_live", [False, True])
+@pytest.mark.parametrize("selection", [None, "packbits-delta"])
+def test_orphan_hypercolumn_roundtrip_keeps_raw_descriptor_and_native_id(
+    zarr_lib, arcae, tmp_path, selection, tiled_live
+):
+    source, state = _orphan_source(tmp_path, tiled_live=tiled_live)
+    source_id = native_logical_id(source)
+    baseline = capture_native_preservation(source, state, tmp_path / "baseline", block_rows=2)
+    bundle = capture_native_preservation(
+        source, state, tmp_path / "selected", block_rows=2, semantic_filters=selection
+    )
+    manifest = _manifest(bundle)
+    assert manifest == _manifest(baseline)
+    assert manifest["native_logical_id"] == source_id
+    assert manifest["profile"] == (native.PROFILE_V2 if tiled_live else native.PROFILE)
+    hidden = tmp_path / "hidden.ms"
+    source.rename(hidden)
+    target = tmp_path / "target.ms"
+    materialize_exact_native(state, target, bundle, expected_native_logical_id=source_id)
+    assert native_logical_id(target) == source_id
+    _assert_same_tables(hidden, target, ["", "/ANTENNA", "/FIELD", "/SPECTRAL_WINDOW"])
+    with table(str(target), ack=False) as tab:
+        assert "REMOVED_SPECTRUM" not in tab.colnames()
+        actual = native._table_metadata(tab, target, "MAIN", target)
+        assert actual["descriptor"] == manifest["tables"][0]["descriptor"]
+        assert _encode(
+            _manager_identity(_decode(actual["managers"]), manifest["native_model"])
+        ) == _encode(
+            _manager_identity(_decode(manifest["tables"][0]["managers"]), manifest["native_model"])
+        )
+        assert not any(
+            "REMOVED_SPECTRUM" in manager["COLUMNS"] for manager in tab.getdminfo().values()
+        )
+
+
+@pytest.mark.parametrize(
+    "damage", ["partial", "multiple", "coordinate", "id", "ndim", "name", "binding", "duplicate"]
+)
+def test_orphan_hypercolumn_creation_refuses_unqualified_forms(damage):
+    desc = {
+        "LIVE": {"valueType": "float"},
+        "_define_hypercolumn_": {"ORPHAN": {"HCndim": 3, "HCdatanames": ["MISSING"]}},
+    }
+    managers = {}
+    hypercolumn = desc["_define_hypercolumn_"]["ORPHAN"]
+    if damage == "partial":
+        hypercolumn["HCdatanames"] = ["LIVE", "MISSING"]
+    elif damage == "multiple":
+        hypercolumn["HCdatanames"] = ["MISSING", "ALSO_MISSING"]
+    elif damage == "coordinate":
+        hypercolumn["HCcoordnames"] = ["LIVE"]
+    elif damage == "id":
+        hypercolumn["HCidnames"] = ["LIVE"]
+    elif damage == "ndim":
+        hypercolumn["HCndim"] = 0
+    elif damage == "name":
+        hypercolumn["HCdatanames"] = ["../MISSING"]
+    elif damage == "binding":
+        managers["*1"] = {"COLUMNS": ["MISSING"], "NAME": "unused"}
+    elif damage == "duplicate":
+        desc["_define_hypercolumn_"]["DUPLICATE"] = dict(hypercolumn)
+    item = {"id": "MAIN", "descriptor": _encode(desc), "managers": _encode(managers)}
+    _refusal("orphan-hypercolumn", native._creation_descriptor, item)
+
+
+@pytest.mark.parametrize(
+    "damage,code",
+    [
+        ("retain", "verify-column-order"),
+        ("descriptor", "verify-descriptor"),
+        ("manager", "verify-manager"),
+    ],
+)
+def test_orphan_hypercolumn_cleanup_mismatch_never_publishes(
+    zarr_lib, arcae, tmp_path, monkeypatch, damage, code
+):
+    source, state = _orphan_source(tmp_path)
+    bundle = capture_native_preservation(source, state, tmp_path / "bundle")
+    original = table.removecols
+    seen = []
+
+    def removing_placeholder(tab, columns):
+        if columns == ["REMOVED_SPECTRUM"]:
+            seen.append(tab.nrows())
+            if damage == "retain":
+                return
+        return original(tab, columns)
+
+    monkeypatch.setattr(table, "removecols", removing_placeholder)
+    if damage == "descriptor":
+        getdesc = table.getdesc
+
+        def changed_descriptor(tab, *args, **kwargs):
+            descriptor = getdesc(tab, *args, **kwargs)
+            if tab.nrows() == 0:
+                descriptor.pop("_define_hypercolumn_", None)
+            return descriptor
+
+        monkeypatch.setattr(table, "getdesc", changed_descriptor)
+    elif damage == "manager":
+        getdminfo = table.getdminfo
+
+        def changed_manager(tab, *args, **kwargs):
+            managers = getdminfo(tab, *args, **kwargs)
+            if tab.nrows() == 0:
+                standard = next(
+                    manager for manager in managers.values() if manager["TYPE"] == "StandardStMan"
+                )
+                standard["SPEC"]["BUCKETSIZE"] += 1
+            return managers
+
+        monkeypatch.setattr(table, "getdminfo", changed_manager)
+    target = tmp_path / "target.ms"
+    _refusal(code, materialize_exact_native, state, target, bundle)
+    assert seen == [0]
+    assert not target.exists()
+    assert not list(tmp_path.glob(".target.ms.*"))
