@@ -1,6 +1,16 @@
 # Changelog
 
-## Unreleased
+## 3.1.0
+
+### Changed
+
+- **Relicensed from GPL-2.0-or-later to the Apache License 2.0.** Releases up
+  to and including 3.0.0 were published under GPL-2.0-or-later; this and later
+  releases are published under Apache-2.0, and the distribution now includes
+  `LICENSE` and `NOTICE`. `NOTICE` records the attribution request (a scholarly
+  courtesy, not a licence condition), each contributor's responsibility for
+  their right to submit, and that the change does not alter the licence on
+  material already lawfully released.
 
 ### Fixed
 
